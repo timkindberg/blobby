@@ -71,11 +71,17 @@ describe("Full Session Integration", () => {
     const sessionId = await createTestSession(t, 10);
     const playerIds = await joinPlayers(t, sessionId, 20);
 
-    // Start game
+    // Start game (goes to pre_game phase)
     await t.mutation(api.sessions.start, { sessionId });
 
     let session = await t.query(api.sessions.get, { sessionId });
     expect(session?.status).toBe("active");
+    expect(session?.questionPhase).toBe("pre_game");
+
+    // Move to first question
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
+
+    session = await t.query(api.sessions.get, { sessionId });
     expect(session?.questionPhase).toBe("question_shown");
 
     // Get questions
@@ -194,6 +200,7 @@ describe("Full Session Integration", () => {
     const playerIds = await joinPlayers(t, sessionId, 2);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
 
     // Session is in question_shown phase (answers not shown yet)
     const session = await t.query(api.sessions.get, { sessionId });
@@ -218,6 +225,7 @@ describe("Full Session Integration", () => {
     const playerIds = await joinPlayers(t, sessionId, 2);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     const questions = await t.query(api.questions.listBySession, { sessionId });
@@ -249,6 +257,7 @@ describe("Full Session Integration", () => {
     const playerIds = await joinPlayers(t, sessionId, 1);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     const questions = await t.query(api.questions.listBySession, { sessionId });
@@ -277,6 +286,7 @@ describe("Full Session Integration", () => {
     const playerIds = await joinPlayers(t, sessionId, 2);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     const questions = await t.query(api.questions.listBySession, { sessionId });
@@ -313,6 +323,7 @@ describe("Full Session Integration", () => {
     const playerIds = await joinPlayers(t, sessionId, 1);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     const questions = await t.query(api.questions.listBySession, { sessionId });
@@ -337,6 +348,7 @@ describe("Full Session Integration", () => {
     const playerIds = await joinPlayers(t, sessionId, 10);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
 
     const questions = await t.query(api.questions.listBySession, { sessionId });
 
@@ -408,6 +420,7 @@ describe("Full Session Integration", () => {
     const playerIds = await joinPlayers(t, sessionId, 3);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     const questions = await t.query(api.questions.listBySession, { sessionId });
@@ -437,6 +450,7 @@ describe("Full Session Integration", () => {
     const playerIds = await joinPlayers(t, sessionId, 2);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
 
     const questions = await t.query(api.questions.listBySession, { sessionId });
 
@@ -482,6 +496,7 @@ describe("Full Session Integration", () => {
     const initialPlayers = await joinPlayers(t, sessionId, 2);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
 
     const questions = await t.query(api.questions.listBySession, { sessionId });
 
@@ -528,6 +543,7 @@ describe("Full Session Integration", () => {
     const playerIds = await joinPlayers(t, sessionId, 3);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
 
     const questions = await t.query(api.questions.listBySession, { sessionId });
 
@@ -578,8 +594,15 @@ describe("Full Session Integration", () => {
 
     await t.mutation(api.sessions.start, { sessionId });
 
-    // Before showAnswers, state should exist but show question_shown phase
+    // In pre_game, state should be null (no current question yet)
     let state = await t.query(api.answers.getRopeClimbingState, { sessionId });
+    expect(state).toBeNull();
+
+    // Move to first question
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
+
+    // Now state should exist and show question_shown phase
+    state = await t.query(api.answers.getRopeClimbingState, { sessionId });
     expect(state).not.toBeNull();
     expect(state!.questionPhase).toBe("question_shown");
     expect(state!.totalPlayers).toBe(4);
@@ -654,6 +677,7 @@ describe("Full Session Integration", () => {
     const playerIds = await joinPlayers(t, sessionId, 2);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
 
     // Should only need to play through 3 questions (0, 2, 4)
     let questionCount = 0;
@@ -698,6 +722,7 @@ describe("Full Session Integration", () => {
     const playerIds = await joinPlayers(t, sessionId, 1);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
 
     const questions = await t.query(api.questions.listBySession, { sessionId });
 
@@ -737,6 +762,7 @@ describe("Full Session Integration", () => {
     await joinPlayers(t, sessionId, 1);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
 
     // Can't reveal before showing answers
     await expect(
@@ -815,6 +841,7 @@ describe("Full Session Integration", () => {
     const playerIds = await joinPlayers(t, sessionId, 3);
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     const questions = await t.query(api.questions.listBySession, { sessionId });

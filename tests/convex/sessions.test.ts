@@ -93,8 +93,9 @@ describe("sessions.remove", () => {
       name: "TestPlayer",
     });
 
-    // Start session, show answers, and submit an answer
+    // Start session -> pre_game, then nextQuestion -> question_shown, then showAnswers -> answers_shown
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move from pre_game to first question
     await t.mutation(api.sessions.showAnswers, { sessionId });
     await t.mutation(api.answers.submit, {
       questionId,
@@ -144,12 +145,20 @@ describe("sessions.backToLobby", () => {
       timeLimit: 30,
     });
 
-    // Start the session
+    // Start the session (goes to pre_game phase)
     await t.mutation(api.sessions.start, { sessionId });
 
-    // Verify it's active
+    // Verify it's active in pre_game phase
     let session = await t.query(api.sessions.get, { sessionId });
     expect(session?.status).toBe("active");
+    expect(session?.currentQuestionIndex).toBe(-1);
+    expect(session?.questionPhase).toBe("pre_game");
+
+    // Go to first question
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
+
+    // Verify it's on question 0
+    session = await t.query(api.sessions.get, { sessionId });
     expect(session?.currentQuestionIndex).toBe(0);
 
     // Go back to lobby
@@ -180,6 +189,7 @@ describe("sessions.backToLobby", () => {
     });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // Submit correct answer to gain elevation
@@ -220,6 +230,7 @@ describe("sessions.backToLobby", () => {
     });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     await t.mutation(api.answers.submit, {

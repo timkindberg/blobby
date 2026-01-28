@@ -29,8 +29,10 @@ describe("answers.submit", () => {
       name: "TestPlayer",
     });
 
-    // Start the session (this sets currentQuestionIndex to 0 and phase to question_shown)
+    // Start the session (this sets currentQuestionIndex to -1 and phase to pre_game)
     await t.mutation(api.sessions.start, { sessionId });
+    // Move to first question (sets currentQuestionIndex to 0 and phase to question_shown)
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
 
     // Show answers (transition to answers_shown phase to accept answers)
     await t.mutation(api.sessions.showAnswers, { sessionId });
@@ -73,6 +75,7 @@ describe("answers.submit", () => {
     });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // First player answers - gets full elevation
@@ -121,6 +124,7 @@ describe("answers.submit", () => {
     });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // Submit wrong answer
@@ -156,6 +160,7 @@ describe("answers.submit", () => {
     });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // First answer
@@ -196,6 +201,7 @@ describe("answers.submit", () => {
     });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     const result = await t.mutation(api.answers.submit, {
@@ -239,6 +245,7 @@ describe("answers.submit", () => {
     });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // Answer first question correctly
@@ -316,6 +323,7 @@ describe("answers.hasAnswered", () => {
     });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     await t.mutation(api.answers.submit, {
@@ -355,6 +363,7 @@ describe("answers.getResults", () => {
     const player3 = await t.mutation(api.players.join, { sessionId, name: "P3" });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // P1 and P2 vote for option 0, P3 votes for option 1
@@ -416,6 +425,7 @@ describe("answers.getTimingInfo", () => {
     });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // Submit an answer
@@ -476,6 +486,7 @@ describe("answers.isQuestionOpen", () => {
     });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     await t.mutation(api.answers.submit, {
@@ -514,6 +525,7 @@ describe("answers.getPlayersOnRopes", () => {
     const player4 = await t.mutation(api.players.join, { sessionId, name: "Diana" });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // Players answer different options (Alice and Charlie pick A, Bob picks B, Diana doesn't answer)
@@ -562,6 +574,7 @@ describe("answers.getPlayersOnRopes", () => {
     const playerId = await t.mutation(api.players.join, { sessionId, name: "TestPlayer" });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // Answer first question correctly to gain elevation
@@ -617,6 +630,7 @@ describe("answers.getPlayersOnRopes", () => {
     const player3 = await t.mutation(api.players.join, { sessionId, name: "Third" });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // All pick option A, but in order
@@ -670,6 +684,7 @@ describe("answers.getRopeClimbingState", () => {
     const player2 = await t.mutation(api.players.join, { sessionId, name: "Bob" });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // Alice answers the first question (with correct answer)
@@ -729,6 +744,7 @@ describe("answers.getRopeClimbingState", () => {
     const playerId = await t.mutation(api.players.join, { sessionId, name: "TestPlayer" });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // Before any answers
@@ -772,6 +788,7 @@ describe("answers.getRopeClimbingState", () => {
     const player3 = await t.mutation(api.players.join, { sessionId, name: "Charlie" });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     // Get the current question ID
@@ -839,6 +856,7 @@ describe("answers.getRopeClimbingState", () => {
     await t.mutation(api.players.heartbeat, { playerId: player2 });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     let state = await t.query(api.answers.getRopeClimbingState, { sessionId });
@@ -896,6 +914,7 @@ describe("answers.getRopeClimbingState", () => {
     const player1 = await t.mutation(api.players.join, { sessionId, name: "Alice" });
 
     await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     await t.mutation(api.sessions.showAnswers, { sessionId });
 
     let state = await t.query(api.answers.getRopeClimbingState, { sessionId });

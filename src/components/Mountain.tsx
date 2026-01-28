@@ -3,9 +3,8 @@ import { Blob } from "./Blob";
 import { generateBlob } from "../lib/blobGenerator";
 import { SUMMIT } from "../../lib/elevation";
 import { Rope, RopeClimber, type RopePlayer, type RopeRevealState, type ClimberRevealState, type RevealPhase } from "./Rope";
-import type { RopeClimbingState, RopeData } from "../../lib/ropeTypes";
+import type { RopeClimbingState, RopeData, QuestionPhase } from "../../lib/ropeTypes";
 import { playSound } from "../lib/soundManager";
-import { AnswerPills } from "./AnswerPills";
 
 export interface MountainPlayer {
   id: string;
@@ -397,6 +396,7 @@ export function Mountain({
           sizeConfig={sizeConfig}
           currentPlayerId={currentPlayerId}
           mode={mode}
+          questionPhase={ropeClimbingState.questionPhase}
         />
       ) : (
         /* Player blobs (positioned absolutely over SVG) */
@@ -414,14 +414,6 @@ export function Mountain({
         ))
       )}
 
-      {/* Answer pills in the sky (spectator mode with active question) */}
-      {mode === "spectator" && skyQuestion && skyQuestion.options && (
-        <AnswerPills
-          options={skyQuestion.options}
-          phase={skyQuestion.phase}
-          correctAnswerIndex={skyQuestion.correctAnswerIndex}
-        />
-      )}
     </div>
   );
 }
@@ -439,6 +431,7 @@ function RopesOverlay({
   sizeConfig,
   currentPlayerId,
   mode,
+  questionPhase,
 }: {
   ropeClimbingState: RopeClimbingState;
   width: number;
@@ -449,6 +442,7 @@ function RopesOverlay({
   sizeConfig: { size: number; spacing: number; showName: boolean; nameSize: number };
   currentPlayerId?: string;
   mode: MountainMode;
+  questionPhase: QuestionPhase;
 }) {
   const { ropes, notAnswered, timing } = ropeClimbingState;
   const isRevealed = timing.isRevealed;
@@ -462,13 +456,17 @@ function RopesOverlay({
   const prevIsRevealedRef = useRef(false);
   const prevQuestionIdRef = useRef<string | null>(null);
 
-  // Get indices of wrong ropes that have players
+  // Get indices of ALL wrong ropes (snip all wrong ladders, not just ones with players)
   const wrongRopeIndices = useMemo(() => {
     return ropes
       .map((rope, i) => ({ rope, index: i }))
-      .filter(({ rope }) => rope.isCorrect === false && rope.players.length > 0)
+      .filter(({ rope }) => rope.isCorrect === false)
       .map(({ index }) => index);
   }, [ropes]);
+
+  // Randomize the snip order once when revealed (stored in ref to avoid re-randomizing)
+  const shuffledWrongRopesRef = useRef<number[]>([]);
+  const hasShuffledRef = useRef(false);
 
   // Orchestrate the reveal sequence
   useEffect(() => {
@@ -476,6 +474,8 @@ function RopesOverlay({
     if (ropeClimbingState.question.id !== prevQuestionIdRef.current) {
       prevQuestionIdRef.current = ropeClimbingState.question.id;
       revealStartedRef.current = false;
+      hasShuffledRef.current = false; // Reset shuffle state for new question
+      shuffledWrongRopesRef.current = [];
       setRevealPhase("pending");
       setSnippedRopes(new Set());
       prevIsRevealedRef.current = false;
@@ -486,6 +486,13 @@ function RopesOverlay({
     if (isRevealed && !prevIsRevealedRef.current && !revealStartedRef.current) {
       revealStartedRef.current = true;
 
+      // Shuffle the wrong rope indices for randomized snip order (only once per reveal)
+      if (!hasShuffledRef.current) {
+        shuffledWrongRopesRef.current = [...wrongRopeIndices].sort(() => Math.random() - 0.5);
+        hasShuffledRef.current = true;
+      }
+      const shuffledWrongRopes = shuffledWrongRopesRef.current;
+
       // PHASE 1: Show scissors on ALL ropes (0ms)
       setRevealPhase("scissors");
 
@@ -495,51 +502,81 @@ function RopesOverlay({
       }, 500);
 
       // PHASE 3: Start snipping sequence (after 1500ms tension pause)
-      const snipStartTimer = setTimeout(() => {
-        if (wrongRopeIndices.length === 0) {
+      // Using a chain of promises to ensure truly sequential timing
+      const snipStartTimer = setTimeout(async () => {
+        if (shuffledWrongRopes.length === 0) {
           // No wrong ropes to snip - go straight to complete
           setRevealPhase("complete");
           // Play celebration for correct answers
-          const hasCorrectPlayers = ropes.some(
-            (rope) => rope.isCorrect === true && rope.players.length > 0
-          );
-          if (hasCorrectPlayers) {
+          const correctRope = ropes.find((rope) => rope.isCorrect === true);
+          if (correctRope && correctRope.players.length > 0) {
+            // Play celebration fanfare first
             setTimeout(() => playSound("celebration"), 200);
+
+            // Then play blobHappy sounds for each correct player
+            const numHappySounds = Math.min(correctRope.players.length, 4); // Cap at 4 sounds
+            for (let j = 0; j < numHappySounds; j++) {
+              setTimeout(() => playSound("blobHappy"), 400 + j * 80);
+            }
           }
         } else {
           setRevealPhase("snipping");
 
-          // Snip wrong ropes one at a time (~500ms per rope)
-          wrongRopeIndices.forEach((ropeIndex, i) => {
-            setTimeout(() => {
-              // Play snip sound
-              playSound("snip");
+          // Play the "safe" sound when correct rope scissors start fading away
+          // This provides audio feedback that the correct ladder is safe
+          const correctRopeExists = ropes.some((rope) => rope.isCorrect === true);
+          if (correctRopeExists) {
+            // Slight delay so it plays after the visual transition starts
+            setTimeout(() => playSound("scissorsSafe"), 100);
+          }
 
-              // Play scream sound for falling players
-              const rope = ropes[ropeIndex];
-              if (rope && rope.players.length > 0) {
-                setTimeout(() => playSound("scream"), 100);
+          // Snip wrong ropes one at a time in RANDOM order, truly sequentially using async/await
+          const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+          for (let i = 0; i < shuffledWrongRopes.length; i++) {
+            const ropeIndex = shuffledWrongRopes[i];
+            if (ropeIndex === undefined) continue;
+
+            // Play snip sound
+            playSound("snip");
+
+            // Mark this rope as snipped
+            setSnippedRopes(prev => new Set([...prev, ropeIndex]));
+
+            // Play sad blob sounds for players on this specific rope (staggered)
+            const rope = ropes[ropeIndex];
+            if (rope && rope.players.length > 0) {
+              // Play blobSad sounds for each player falling from this rope
+              // Stagger them slightly for a "chorus of disappointment" effect
+              const numSadSounds = Math.min(rope.players.length, 4); // Cap at 4 sounds
+              for (let j = 0; j < numSadSounds; j++) {
+                setTimeout(() => playSound("blobSad"), 150 + j * 100);
               }
+            }
 
-              // Mark this rope as snipped
-              setSnippedRopes(prev => new Set([...prev, ropeIndex]));
+            // Wait before the next snip (800ms between each snip for dramatic pacing)
+            // But don't wait after the last one
+            if (i < shuffledWrongRopes.length - 1) {
+              await delay(800);
+            }
+          }
 
-              // After all ropes are snipped, transition to complete
-              if (i === wrongRopeIndices.length - 1) {
-                setTimeout(() => {
-                  setRevealPhase("complete");
+          // After all ropes are snipped, wait a bit then transition to complete
+          await delay(500);
+          setRevealPhase("complete");
 
-                  // Play celebration for correct answers
-                  const hasCorrectPlayers = ropes.some(
-                    (rope) => rope.isCorrect === true && rope.players.length > 0
-                  );
-                  if (hasCorrectPlayers) {
-                    setTimeout(() => playSound("celebration"), 200);
-                  }
-                }, 300);
-              }
-            }, i * 500); // 500ms between each snip
-          });
+          // Play happy blob sounds for correct players (staggered celebration)
+          const correctRope = ropes.find((rope) => rope.isCorrect === true);
+          if (correctRope && correctRope.players.length > 0) {
+            // Play celebration fanfare first
+            setTimeout(() => playSound("celebration"), 200);
+
+            // Then play blobHappy sounds for each correct player
+            const numHappySounds = Math.min(correctRope.players.length, 4); // Cap at 4 sounds
+            for (let j = 0; j < numHappySounds; j++) {
+              setTimeout(() => playSound("blobHappy"), 400 + j * 80);
+            }
+          }
         }
       }, 1500);
 
@@ -593,34 +630,17 @@ function RopesOverlay({
     return rope.isCorrect ? "correct" : "wrong";
   };
 
-  // Calculate cut Y position for wrong ropes (based on highest climber's visual position)
+  // Calculate cut Y position for wrong ropes
+  // The scissors appear at the TOP of the rope (near summit line), so the cut happens there
+  // This means: portion ABOVE scissors stays attached, portion BELOW scissors falls
   const getCutY = (rope: RopeData, ropeIndex: number): number | undefined => {
     // Only show cut for wrong ropes that have been snipped
     if (rope.isCorrect !== false) return undefined;
     if (!snippedRopes.has(ropeIndex) && revealPhase !== "complete") return undefined;
 
-    // For empty ropes, cut near the bottom of the visible area (not at the top)
-    if (rope.players.length === 0) {
-      // Cut at 80% down the rope (closer to where players would typically be)
-      return ropeTopY + (ropeBottomY - ropeTopY) * 0.8;
-    }
-
-    // Find the player who is visually highest on the rope
-    // Players are sorted by answeredAt, and later players have more negative climbOffset
-    // So the last player (highest index) is visually highest on the rope
-    const playerVisualPositions = rope.players.map((p, playerIndex) => {
-      const baseY = elevationToY(p.elevationAtAnswer);
-      // Account for climb offset: later players climb higher (more negative offset)
-      const climbOffset = -(playerIndex * 15);
-      return baseY + climbOffset; // This is the visual Y position
-    });
-
-    // Find the minimum Y (highest visual position)
-    const highestVisualY = Math.min(...playerVisualPositions);
-
-    // Cut 30px above the visually highest player
-    // But ensure cut is at least 20px below the rope top (summit line)
-    return Math.max(ropeTopY + 20, highestVisualY - 30);
+    // Scissors are positioned at ropeTopY + 15, so cut should be at the same position
+    // Add a small offset (5px) to place the cut just below the scissors blades
+    return ropeTopY + 20;
   };
 
   return (
@@ -635,7 +655,7 @@ function RopesOverlay({
           <Rope
             key={i}
             label={ropeLabels[i] ?? "?"}
-            answerText={rope.optionText}
+            optionText={rope.optionText}
             x={ropeXPositions[i] ?? width / 2}
             topY={ropeTopY}
             bottomY={ropeBottomY}
@@ -647,43 +667,56 @@ function RopesOverlay({
             revealState={getRopeRevealState(rope, i)}
             cutY={getCutY(rope, i)}
             revealPhase={revealPhase}
-            isWrongRope={rope.isCorrect === false}
+            questionPhase={questionPhase}
           />
         ))}
       </svg>
 
-      {/* Scissors animation - show on ALL ropes during scissors phase, then only on wrong ropes during snipping */}
+      {/* Scissors animation - show on ALL ropes during scissors/snipping phases for suspense */}
       {(revealPhase === "scissors" || revealPhase === "snipping") &&
         ropes.map((rope, i) => {
-          // During scissors phase, show on ALL ropes for suspense
-          // During snipping phase, only show on wrong ropes that haven't been snipped yet
-          if (revealPhase === "snipping") {
-            if (rope.isCorrect !== false || snippedRopes.has(i)) return null;
-          }
+          // Skip poll-mode ropes (isCorrect === null)
+          if (rope.isCorrect === null) return null;
 
-          // Skip ropes with no players (no tension if no one is on it)
-          if (rope.players.length === 0) return null;
+          // Position scissors at the top of the ladder, just below the answer label
+          // This is more dramatic and visible than positioning near players
+          const scissorsY = ropeTopY + 15;
 
-          // Calculate cut position based on highest player's visual position
-          // Account for climb offset (later players are visually higher on the rope)
-          const playerVisualPositions = rope.players.map((p, playerIndex) => {
-            const baseY = elevationToY(p.elevationAtAnswer);
-            const climbOffset = -(playerIndex * 15);
-            return baseY + climbOffset;
-          });
-          const highestVisualY = Math.min(...playerVisualPositions);
-          const cutY = Math.max(ropeTopY + 20, highestVisualY - 30);
-
-          // Determine if this is the correct rope (will disappear, not cut)
+          // Determine scissors class based on rope correctness and phase
+          // During scissors phase: all scissors hover menacingly
+          // During snipping phase:
+          //   - Wrong rope that just got snipped: play snip animation
+          //   - Correct rope: fade away to show it's safe
+          //   - Wrong ropes not yet snipped: keep hovering
           const isCorrectRope = rope.isCorrect === true;
+          const isWrongRope = rope.isCorrect === false;
+          const isSnippingPhase = revealPhase === "snipping";
+          const hasBeenSnipped = snippedRopes.has(i);
+
+          let scissorsClass = "rope-scissors";
+          if (revealPhase === "scissors") {
+            // All scissors hover menacingly during tension phase
+            scissorsClass += " rope-scissors-hover";
+          } else if (isSnippingPhase) {
+            if (isWrongRope && hasBeenSnipped) {
+              // This wrong rope just got snipped - play snip animation
+              scissorsClass += " rope-scissors-snipping";
+            } else if (isCorrectRope) {
+              // Correct rope - scissors should fade away to show it's safe
+              scissorsClass += " rope-scissors-correct";
+            } else {
+              // Wrong rope not yet snipped - keep hovering
+              scissorsClass += " rope-scissors-hover";
+            }
+          }
 
           return (
             <div
               key={`scissors-${i}`}
-              className={`rope-scissors ${revealPhase === "scissors" ? "rope-scissors-hover" : ""} ${isCorrectRope ? "rope-scissors-correct" : ""}`}
+              className={scissorsClass}
               style={{
-                left: (ropeXPositions[i] ?? width / 2) - 12,
-                top: cutY - 12,
+                left: (ropeXPositions[i] ?? width / 2) - 32,
+                top: scissorsY - 32,
               }}
             >
               ✂️
@@ -883,6 +916,10 @@ const RopeClimbersGroup = memo(function RopeClimbersGroup({
     return "climbing";
   };
 
+  // Base climb height - how far up the rope players climb when they grab it
+  // This gives the visual effect of "climbing up" the rope after answering
+  const BASE_CLIMB_HEIGHT = 60; // pixels to climb up from their starting elevation
+
   return (
     <>
       {players.map((player, playerIndex) => {
@@ -894,7 +931,11 @@ const RopeClimbersGroup = memo(function RopeClimbersGroup({
         // Since players array is sorted by answeredAt ascending, index 0 answered first
         // Higher position on rope = more negative Y offset (since Y increases downward)
         const totalPlayers = players.length;
-        const climbOffset = -((totalPlayers - 1 - playerIndex) * 15); // Earlier answerers get more negative offset (higher)
+        const stackOffset = -((totalPlayers - 1 - playerIndex) * 15); // Earlier answerers get more negative offset (higher)
+
+        // Total climb offset = base climb height + stacking offset
+        // This makes blobs climb UP the rope when they answer, not just bob in place
+        const climbOffset = -BASE_CLIMB_HEIGHT + stackOffset;
 
         // Slight horizontal offset for visual separation
         const xOffset = (playerIndex % 2 === 0 ? -1 : 1) * (playerIndex > 0 ? 8 : 0);
@@ -956,9 +997,12 @@ const ThinkingPlayer = memo(function ThinkingPlayer({
 }) {
   const blobConfig = useMemo(() => generateBlob(playerName), [playerName]);
 
+  // Highlight circle size is slightly larger than the blob
+  const highlightSize = size * 1.4;
+
   return (
     <div
-      className={`thinking-player ${isRevealed ? "thinking-player-reveal" : ""}`}
+      className={`thinking-player ${isRevealed ? "thinking-player-reveal" : ""} ${isCurrentPlayer ? "current-player-highlight" : ""}`}
       style={{
         position: "absolute",
         left: x - size / 2,
@@ -970,6 +1014,22 @@ const ThinkingPlayer = memo(function ThinkingPlayer({
         pointerEvents: "none",
       }}
     >
+      {/* Highlight circle behind current player's blob */}
+      {isCurrentPlayer && (
+        <div
+          className="player-highlight-circle"
+          style={{
+            position: "absolute",
+            width: highlightSize,
+            height: highlightSize,
+            left: (size - highlightSize) / 2,
+            top: (size - highlightSize) / 2,
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(255, 215, 0, 0.4) 0%, rgba(255, 215, 0, 0.15) 50%, transparent 70%)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
       <Blob config={blobConfig} size={size} state="idle" />
       {showName && (
         <div
@@ -1031,12 +1091,14 @@ function SummitDecoration({
   const midX = width / 2;
 
   // Calculate peak position (where the mountain tip would be)
-  const peakY = topY + 20;
+  // Move down enough to ensure flag is visible (flag extends ~42px above peak in spectator mode)
+  const peakY = topY + 60;
 
   // Calculate the sky height for question placement
   const skyHeight = summitY - topY;
-  // Question text positioning - centered in the upper portion of the sky
-  const questionY = topY + skyHeight * 0.35;
+  // Question text positioning - in the top portion of the sky, well above the mountain peak
+  // Position at 18% down from top to ensure it's above the snow cap
+  const questionY = topY + skyHeight * 0.18;
 
   return (
     <g>
@@ -1181,14 +1243,36 @@ function SkyQuestionDisplay({
   const questionLines = Math.ceil(question.text.length / charsPerLine);
   const lineHeight = fontSize * 1.3;
 
+  // Calculate background dimensions for the question text area
+  const bgPadding = 20;
+  const bgWidth = maxTextWidth + bgPadding * 2;
+  const totalTextHeight = questionLines * lineHeight + 20; // Add some buffer
+  const bgHeight = totalTextHeight + bgPadding * 2;
+  // Position background Y to center around the question text
+  // questionY is the baseline of the first line, so offset up by fontSize
+  const bgY = questionY - fontSize - bgPadding + 5;
+
   return (
     <g className="sky-question">
+      {/* Semi-transparent background for readability */}
+      <rect
+        x={midX - bgWidth / 2}
+        y={bgY}
+        width={bgWidth}
+        height={bgHeight}
+        rx={12}
+        ry={12}
+        fill="rgba(0, 20, 50, 0.55)"
+        stroke="rgba(255, 255, 255, 0.15)"
+        strokeWidth={1}
+      />
+
       {/* Question number badge */}
       <text
         x={midX}
-        y={topY + 40}
+        y={questionY - fontSize - 5}
         textAnchor="middle"
-        fill="rgba(255,255,255,0.7)"
+        fill="rgba(255,255,255,0.8)"
         fontSize={smallFontSize}
         fontWeight="600"
         style={{ textTransform: "uppercase", letterSpacing: "0.1em" }}
@@ -1242,7 +1326,7 @@ function SkyQuestionDisplay({
           x={midX}
           y={questionY + questionLines * lineHeight + 30}
           textAnchor="middle"
-          fill="rgba(255,255,255,0.6)"
+          fill="rgba(255,255,255,0.7)"
           fontSize={smallFontSize * 1.2}
           fontStyle="italic"
         >
@@ -1921,9 +2005,12 @@ const MemoizedPlayerBlob = memo(function PlayerBlob({
 }) {
   const blobConfig = useMemo(() => generateBlob(player.name), [player.name]);
 
+  // Highlight circle size is slightly larger than the blob
+  const highlightSize = size * 1.4;
+
   return (
     <div
-      className="mountain-player"
+      className={`mountain-player ${isCurrentPlayer ? "current-player-highlight" : ""}`}
       style={{
         position: "absolute",
         left: x - size / 2,
@@ -1933,6 +2020,22 @@ const MemoizedPlayerBlob = memo(function PlayerBlob({
         filter: isCurrentPlayer ? "drop-shadow(0 0 6px gold) drop-shadow(0 0 12px rgba(255,215,0,0.5))" : "none",
       }}
     >
+      {/* Highlight circle behind current player's blob */}
+      {isCurrentPlayer && (
+        <div
+          className="player-highlight-circle"
+          style={{
+            position: "absolute",
+            width: highlightSize,
+            height: highlightSize,
+            left: (size - highlightSize) / 2,
+            top: (size - highlightSize) / 2,
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(255, 215, 0, 0.4) 0%, rgba(255, 215, 0, 0.15) 50%, transparent 70%)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
       <Blob config={blobConfig} size={size} state="idle" />
       {/* Name label - optimized for dark rock background */}
       {showName && (

@@ -9,6 +9,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   playSound,
   playSqueakBurst,
+  playChitterBurst,
+  playSnipBurst,
+  playBlobSadBurst,
+  playBlobHappyBurst,
   isMuted,
   setMuted,
   toggleMute,
@@ -23,6 +27,14 @@ export interface UseSoundManagerReturn {
   play: (type: SoundType) => void;
   /** Play multiple squeaks in quick succession */
   playSqueaks: (count?: number) => void;
+  /** Play multiple chitters for excited blobs */
+  playChitters: (count?: number, maxCount?: number) => void;
+  /** Play multiple snip sounds for wrong ropes (spectator view) */
+  playSnips: (count?: number, maxCount?: number) => void;
+  /** Play multiple sad blob sounds for wrong answers */
+  playBlobSads: (count?: number, maxCount?: number) => void;
+  /** Play multiple happy blob sounds for correct answers */
+  playBlobHappies: (count?: number, maxCount?: number) => void;
   /** Current mute state */
   muted: boolean;
   /** Set the mute state */
@@ -82,6 +94,22 @@ export function useSoundManager(): UseSoundManagerReturn {
     playSqueakBurst(count);
   }, []);
 
+  const playChitters = useCallback((count?: number, maxCount?: number) => {
+    playChitterBurst(count, maxCount);
+  }, []);
+
+  const playSnips = useCallback((count?: number, maxCount?: number) => {
+    playSnipBurst(count, maxCount);
+  }, []);
+
+  const playBlobSads = useCallback((count?: number, maxCount?: number) => {
+    playBlobSadBurst(count, maxCount);
+  }, []);
+
+  const playBlobHappies = useCallback((count?: number, maxCount?: number) => {
+    playBlobHappyBurst(count, maxCount);
+  }, []);
+
   const handleSetMuted = useCallback((newMuted: boolean) => {
     setMuted(newMuted);
   }, []);
@@ -98,6 +126,10 @@ export function useSoundManager(): UseSoundManagerReturn {
   return {
     play,
     playSqueaks,
+    playChitters,
+    playSnips,
+    playBlobSads,
+    playBlobHappies,
     muted,
     setMuted: handleSetMuted,
     toggleMute: handleToggleMute,

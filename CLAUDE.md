@@ -198,6 +198,28 @@ When asked to do work that involves multiple steps or non-trivial implementation
 - **Set dependencies** between tasks using `addBlockedBy` when order matters
 - Tasks help maintain context across conversation and show progress to the user
 
+## Agent Instructions
+
+### Lead Agent (Main Conversation)
+You are the **tech lead**. You do NOT write code directly. Your responsibilities:
+- **Delegate all implementation** to subagents via the Task tool
+- **Always run subagents in background** (`run_in_background: true`) so the user can keep chatting
+- **Only you manage tasks** - use TaskCreate, TaskUpdate, TaskList
+- **Report progress** and summaries to the user
+- **Always tell subagents** they are subagents and must follow the Subagent Instructions below
+
+When spawning a subagent, always include in the prompt:
+> "You are a SUBAGENT. Follow the Subagent Instructions in CLAUDE.md. Do NOT use task tools or act as tech lead."
+
+### Subagent Instructions
+You are a **subagent** - an implementation worker, not the tech lead. Your rules:
+- **Do NOT use** TaskCreate, TaskUpdate, or TaskList tools - only the lead manages tasks
+- **Do NOT create or manage tasks** - if you discover additional work needed, report it in your summary
+- **Focus on implementation** - write code, fix bugs, make the changes requested
+- **Be thorough but concise** in your completion summary
+- **Do NOT delegate** to other agents - you are the worker, do the work yourself
+- **Report back** what you did, what worked, what issues you found
+
 ## Development Notes
 
 - Convex provides real-time sync out of the box - no manual WebSocket management

@@ -74,9 +74,9 @@ export function PlayerView({ onBack }: Props) {
 
   // Sound effects
   const { play } = useSoundManager();
-  const previousElevation = useRef<number | null>(null);
-  const lastAnswerResult = useRef<{ correct: boolean | null; played: boolean } | null>(null);
   const prevPlayerCountRef = useRef(0);
+  const prevQuestionPhaseRef = useRef<string | null>(null);
+  const hasPlayedRevealSoundsRef = useRef<string | null>(null);
 
   // Heartbeat for presence tracking - sends every 5 seconds while tab is open
   usePlayerHeartbeat(playerId);
@@ -195,38 +195,52 @@ export function PlayerView({ onBack }: Props) {
     // Play boop sound immediately on answer submit
     play("boop");
 
-    // Store current elevation before submitting
-    previousElevation.current = player?.elevation ?? 0;
-
-    const result = await submitAnswer({
+    await submitAnswer({
       questionId: currentQuestion._id,
       playerId,
       optionIndex,
     });
-
-    // Track the result for sound playback
-    if (result) {
-      lastAnswerResult.current = { correct: result.correct, played: false };
-    }
   }
 
-  // Play celebration or snip sound based on answer result
+  // Play reveal sounds when transitioning to "revealed" phase (player plays only THEIR sounds)
   useEffect(() => {
-    if (lastAnswerResult.current && !lastAnswerResult.current.played) {
-      const { correct } = lastAnswerResult.current;
-      lastAnswerResult.current.played = true;
+    if (!ropeClimbingState || !playerId || !currentQuestion) return;
 
-      // Small delay to let the UI update first
-      setTimeout(() => {
-        if (correct === true) {
-          play("celebration");
-        } else if (correct === false) {
+    const questionId = currentQuestion._id;
+    const phase = ropeClimbingState.questionPhase;
+
+    // Only play once per question when transitioning to revealed phase
+    if (phase === "revealed" && hasPlayedRevealSoundsRef.current !== questionId) {
+      hasPlayedRevealSoundsRef.current = questionId;
+
+      // Find if this player answered and if they were correct
+      const playerRopeIndex = ropeClimbingState.ropes.findIndex(
+        rope => rope.players.some(p => p.playerId === playerId)
+      );
+      const didAnswer = playerRopeIndex !== -1;
+
+      if (didAnswer) {
+        const playerRope = ropeClimbingState.ropes[playerRopeIndex];
+        const isCorrect = playerRope?.isCorrect === true;
+
+        if (isCorrect) {
+          // Play happy sound for correct answer
+          play("blobHappy");
+        } else {
+          // Play snip then sad sound for wrong answer
           play("snip");
+          setTimeout(() => {
+            play("blobSad");
+          }, 300);
         }
-        // For poll mode (correct === null), no special sound
-      }, 100);
+      }
     }
-  }, [player?.elevation, play]);
+
+    // Reset when phase changes away from revealed
+    if (phase !== "revealed") {
+      hasPlayedRevealSoundsRef.current = null;
+    }
+  }, [ropeClimbingState, currentQuestion?._id, playerId, play]);
 
   // Play pop/giggle sounds when new players join the lobby
   useEffect(() => {
@@ -244,6 +258,34 @@ export function PlayerView({ onBack }: Props) {
 
     prevPlayerCountRef.current = currentCount;
   }, [players?.length, play]);
+
+  // Play sound when a new question is shown (transition TO question_shown phase)
+  const currentQuestionPhase = ropeClimbingState?.questionPhase ?? null;
+  useEffect(() => {
+    const prevPhase = prevQuestionPhaseRef.current;
+
+    // Only play sound when transitioning TO question_shown from a different phase
+    if (currentQuestionPhase === "question_shown" && prevPhase !== "question_shown" && prevPhase !== null) {
+      play("questionReveal");
+    }
+
+    prevQuestionPhaseRef.current = currentQuestionPhase;
+  }, [currentQuestionPhase, play]);
+
+  // Play "Get Ready!" sound when entering pre_game phase (game is about to start)
+  const prevSessionPhaseRef = useRef<string | null>(null);
+  const isPreGame = session?.status === "active" && session?.questionPhase === "pre_game";
+  useEffect(() => {
+    const currentPhase = isPreGame ? "pre_game" : session?.status ?? null;
+    const prevPhase = prevSessionPhaseRef.current;
+
+    // Play sound when transitioning INTO pre_game phase
+    if (isPreGame && prevPhase !== "pre_game") {
+      play("getReady");
+    }
+
+    prevSessionPhaseRef.current = currentPhase;
+  }, [isPreGame, session?.status, play]);
 
   // Memoized values for lobby display (must be before early returns)
   const otherPlayers = useMemo(() =>
@@ -392,7 +434,23 @@ export function PlayerView({ onBack }: Props) {
         />
       )}
 
-      {currentQuestion ? (
+      {/* Pre-game phase - game started but no question shown yet */}
+      {session?.status === "active" && session.questionPhase === "pre_game" && !currentQuestion ? (
+        <div className="player-pregame">
+          <div className="player-pregame-content">
+            <h2 className="player-pregame-title">Get Ready!</h2>
+            <p className="player-pregame-subtitle">The climb is about to begin...</p>
+            {currentPlayerBlob && (
+              <div className="player-pregame-blob blob-bounce">
+                <Blob config={currentPlayerBlob} size={100} />
+              </div>
+            )}
+            <p className="player-pregame-players">
+              {players?.length ?? 0} climber{(players?.length ?? 0) !== 1 ? 's' : ''} ready
+            </p>
+          </div>
+        </div>
+      ) : currentQuestion ? (
         <div className="question">
           {/* Timer display - only show during answers_shown phase or later */}
           {questionPhase !== "question_shown" && (
@@ -434,10 +492,70 @@ export function PlayerView({ onBack }: Props) {
             )
           )}
 
-          {/* Phase: revealed - show waiting message */}
-          {questionPhase === "revealed" && (
-            <p className="waiting">Answers revealed!</p>
-          )}
+          {/* Phase: revealed - show answer feedback with all options */}
+          {questionPhase === "revealed" && ropeClimbingState && (() => {
+            // Find which option the player selected
+            const playerSelectedIndex = ropeClimbingState.ropes.findIndex(
+              rope => rope.players.some(p => p.playerId === playerId)
+            );
+            const correctIndex = ropeClimbingState.ropes.findIndex(r => r.isCorrect === true);
+            const isCorrect = playerSelectedIndex === correctIndex && playerSelectedIndex !== -1;
+            const didAnswer = playerSelectedIndex !== -1;
+
+            return (
+              <div className="reveal-feedback">
+                {/* Prominent result message */}
+                {didAnswer ? (
+                  <div className={`result-banner ${isCorrect ? 'correct' : 'wrong'}`}>
+                    {isCorrect ? (
+                      <>
+                        <span className="result-text">CORRECT!</span>
+                        <span className="elevation-gain">+100m</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="result-text">WRONG!</span>
+                        <span className="elevation-gain">+0m</span>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="result-banner no-answer">
+                    <span className="result-text">No Answer</span>
+                    <span className="elevation-gain">+0m</span>
+                  </div>
+                )}
+
+                {/* Show all options with highlighting */}
+                <div className="options revealed">
+                  {currentQuestion.options.map((opt, i) => {
+                    const rope = ropeClimbingState.ropes[i];
+                    const isThisCorrect = rope?.isCorrect === true;
+                    const isPlayerSelection = i === playerSelectedIndex;
+
+                    let className = 'option-revealed';
+                    if (isThisCorrect) {
+                      className += ' correct-answer';
+                    }
+                    if (isPlayerSelection && !isThisCorrect) {
+                      className += ' wrong-selection';
+                    }
+                    if (isPlayerSelection) {
+                      className += ' player-selected';
+                    }
+
+                    return (
+                      <div key={i} className={className}>
+                        <span className="option-text">{opt.text}</span>
+                        {isPlayerSelection && <span className="your-pick">Your pick</span>}
+                        {isThisCorrect && <span className="correct-label">Correct</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Phase: results - show leaderboard with player's position */}
           {questionPhase === "results" && leaderboard && (

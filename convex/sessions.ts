@@ -14,15 +14,15 @@ function generateCode(): string {
 // Sample questions for rapid testing
 const SAMPLE_QUESTIONS = [
   {
-    text: "What is the largest planet in our solar system?",
+    text: "What should you do if you encounter a bear in the wild?",
     options: [
-      { text: "Mars" },
-      { text: "Jupiter" },
-      { text: "Saturn" },
-      { text: "Neptune" },
+      { text: "Run away as fast as possible" },
+      { text: "Make yourself look big and back away slowly" },
+      { text: "Play dead immediately" },
+      { text: "Try to climb the nearest tree" },
     ],
     correctOptionIndex: 1,
-    timeLimit: 15,
+    timeLimit: 20,
   },
   {
     text: "Which director won an Oscar for 'Oppenheimer'?",
@@ -210,9 +210,9 @@ export const start = mutation({
 
     await ctx.db.patch(args.sessionId, {
       status: "active",
-      currentQuestionIndex: 0,
-      questionStartedAt: Date.now(),
-      questionPhase: "question_shown", // Start with just the question visible
+      currentQuestionIndex: -1, // Pre-game hype phase before first question
+      questionStartedAt: undefined,
+      questionPhase: "pre_game", // New phase for "Game Started" hype moment
     });
   },
 });
@@ -359,6 +359,104 @@ export const showResults = mutation({
     await ctx.db.patch(args.sessionId, {
       questionPhase: "results",
     });
+  },
+});
+
+// Navigate backward through the question phases
+// Returns { isDestructive: boolean, targetDescription: string }
+export const previousPhase = mutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) throw new Error("Session not found");
+    if (session.status !== "active") throw new Error("Session not active");
+
+    const phase = session.questionPhase;
+    const currentIndex = session.currentQuestionIndex;
+
+    // Get enabled questions for reference
+    const questions = await ctx.db
+      .query("questions")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .collect();
+    const enabledQuestions = questions
+      .filter((q) => q.enabled !== false)
+      .sort((a, b) => a.order - b.order);
+
+    const currentQuestion = enabledQuestions[currentIndex];
+
+    // From pre_game -> lobby (safe: no progress to lose)
+    if (phase === "pre_game") {
+      await ctx.db.patch(args.sessionId, {
+        status: "lobby",
+        currentQuestionIndex: -1,
+        questionStartedAt: undefined,
+        questionPhase: undefined,
+      });
+      return { isDestructive: false, targetDescription: "Lobby" };
+    }
+
+    // From results -> revealed (safe: just hide results)
+    if (phase === "results") {
+      await ctx.db.patch(args.sessionId, { questionPhase: "revealed" });
+      return { isDestructive: false, targetDescription: "Revealed" };
+    }
+
+    // From revealed -> answers_shown (safe: just un-reveal)
+    if (phase === "revealed") {
+      await ctx.db.patch(args.sessionId, { questionPhase: "answers_shown" });
+      return { isDestructive: false, targetDescription: "Hide Answer" };
+    }
+
+    // From answers_shown -> question_shown (DESTRUCTIVE: delete current question's answers)
+    if (phase === "answers_shown") {
+      if (currentQuestion) {
+        // Delete all answers for this question
+        const answers = await ctx.db
+          .query("answers")
+          .withIndex("by_question", (q) => q.eq("questionId", currentQuestion._id))
+          .collect();
+
+        // Revert player elevations - for each answer, subtract the elevation gain
+        // We can compute the gain by comparing current elevation to elevationAtAnswer
+        for (const answer of answers) {
+          const player = await ctx.db.get(answer.playerId);
+          if (player) {
+            // Reset player to their elevation when they grabbed the rope
+            await ctx.db.patch(answer.playerId, { elevation: answer.elevationAtAnswer });
+          }
+        }
+
+        // Now delete the answers
+        for (const answer of answers) {
+          await ctx.db.delete(answer._id);
+        }
+      }
+
+      await ctx.db.patch(args.sessionId, { questionPhase: "question_shown" });
+      return { isDestructive: true, targetDescription: "Clear Answers" };
+    }
+
+    // From question_shown on Q2+ -> previous question's results (safe)
+    if (phase === "question_shown" && currentIndex > 0) {
+      await ctx.db.patch(args.sessionId, {
+        currentQuestionIndex: currentIndex - 1,
+        questionPhase: "results",
+      });
+      return { isDestructive: false, targetDescription: `Q${currentIndex} Results` };
+    }
+
+    // From question_shown on Q1 -> pre_game (safe: go back to pre-game hype phase)
+    if (phase === "question_shown" && currentIndex === 0) {
+      await ctx.db.patch(args.sessionId, {
+        currentQuestionIndex: -1,
+        questionStartedAt: undefined,
+        questionPhase: "pre_game",
+      });
+      return { isDestructive: false, targetDescription: "Pre-Game" };
+    }
+
+    throw new Error("Cannot go back from current state");
   },
 });
 

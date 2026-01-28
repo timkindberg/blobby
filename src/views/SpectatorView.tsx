@@ -1,14 +1,15 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { Mountain, type SkyQuestion } from "../components/Mountain";
-import { Timer } from "../components/Timer";
 import { Leaderboard } from "../components/Leaderboard";
 import { Blob } from "../components/Blob";
 import { generateBlob } from "../lib/blobGenerator";
 import { SUMMIT } from "../../lib/elevation";
 import type { RopeClimbingState } from "../../lib/ropeTypes";
+import { useSoundManager } from "../hooks/useSoundManager";
+import type { SoundType } from "../lib/soundManager";
 
 interface Props {
   sessionCode: string;
@@ -22,6 +23,14 @@ interface Props {
  * and timer. No admin controls - this is purely for audience viewing.
  */
 export function SpectatorView({ sessionCode, onBack }: Props) {
+  // Sound effects for player join, question reveal, and game start
+  // NOTE: Reveal sounds (snip, blobSad, blobHappy) are handled by Mountain.tsx
+  const { play, playChitters, muted, toggleMute } = useSoundManager();
+  const prevPlayerCountRef = useRef(0);
+  const prevQuestionPhaseRef = useRef<string | null>(null);
+  const prevSessionPhaseRef = useRef<string | null>(null);
+  const hasPlayedRevealSoundsRef = useRef<string | null>(null);
+
   // Track window dimensions for full-screen mountain
   const [dimensions, setDimensions] = useState({
     width: window.innerWidth,
@@ -78,6 +87,124 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
     sessionId ? { sessionId } : "skip"
   ) as RopeClimbingState | null | undefined;
 
+  // Play pop/giggle sounds when new players join the lobby
+  useEffect(() => {
+    if (!players || session?.status !== "lobby") return;
+
+    const currentCount = players.length;
+    const prevCount = prevPlayerCountRef.current;
+
+    if (currentCount > prevCount && prevCount > 0) {
+      // New player(s) joined! Play a pop sound for each new player with stagger
+      const newPlayers = currentCount - prevCount;
+      for (let i = 0; i < Math.min(newPlayers, 5); i++) {
+        // Stagger sounds slightly (100ms apart) for musical "popcorn" effect
+        // Randomly use pop (75%) or giggle (25%) for variety
+        setTimeout(() => {
+          const useGiggle = Math.random() < 0.25;
+          play(useGiggle ? "giggle" : "pop");
+        }, i * 100);
+      }
+    }
+
+    prevPlayerCountRef.current = currentCount;
+  }, [players?.length, session?.status, play]);
+
+  // Play sound when a new question is shown (transition TO question_shown phase)
+  const currentQuestionPhase = ropeClimbingState?.questionPhase ?? null;
+  useEffect(() => {
+    const prevPhase = prevQuestionPhaseRef.current;
+
+    // Only play sound when transitioning TO question_shown from a different phase
+    if (currentQuestionPhase === "question_shown" && prevPhase !== "question_shown" && prevPhase !== null) {
+      play("questionReveal");
+    }
+
+    prevQuestionPhaseRef.current = currentQuestionPhase;
+  }, [currentQuestionPhase, play]);
+
+  // NOTE: Reveal sounds (snip, blobSad, blobHappy, celebration) are now orchestrated
+  // in Mountain.tsx's RopesOverlay component with proper sequential timing.
+  // This useEffect is intentionally removed to avoid duplicate/conflicting sounds.
+  // The Mountain component handles the dramatic reveal sequence:
+  // 1. Tension sound -> 2. Snip each wrong rope one at a time with sad sounds -> 3. Happy celebration
+
+  // Reset reveal sound tracking when question changes
+  useEffect(() => {
+    if (!ropeClimbingState) return;
+    const phase = ropeClimbingState.questionPhase;
+    if (phase !== "revealed") {
+      hasPlayedRevealSoundsRef.current = null;
+    }
+  }, [ropeClimbingState]);
+
+  // Play "Get Ready!" sound and blob chitters when entering pre_game phase
+  const isPreGamePhase = session?.status === "active" && session?.currentQuestionIndex === -1;
+  useEffect(() => {
+    const currentPhase = isPreGamePhase ? "pre_game" : session?.status ?? null;
+    const prevPhase = prevSessionPhaseRef.current;
+
+    // Play sounds when transitioning INTO pre_game phase (spectator plays all sounds)
+    if (isPreGamePhase && prevPhase !== "pre_game") {
+      play("getReady");
+      // Play chitters from blobs - spectator view plays multiple for excitement
+      // Slight delay after the fanfare
+      setTimeout(() => {
+        const playerCount = players?.length ?? 0;
+        playChitters(playerCount, 5); // Play up to 5 chitters based on player count
+      }, 600);
+    }
+
+    prevSessionPhaseRef.current = currentPhase;
+  }, [isPreGamePhase, session?.status, players?.length, play, playChitters]);
+
+  // Track which blob is currently "speaking" (for visual animation)
+  const [speakingPlayerId, setSpeakingPlayerId] = useState<string | null>(null);
+
+  // Play ambient blob sounds in the lobby while waiting
+  const isLobby = session?.status === "lobby";
+  const playerCount = players?.length ?? 0;
+  useEffect(() => {
+    if (!isLobby || playerCount === 0 || !players) return;
+
+    // Schedule the next ambient sound with highly randomized timing
+    // Wide range: 800-5000ms for truly spontaneous feel
+    // More players = slightly more frequent sounds (but still highly varied)
+    const scheduleNextSound = () => {
+      // More players = slightly more frequent sounds (but cap at reasonable rate)
+      // With 1 player: 1500-5000ms, with 10+ players: 800-4000ms
+      const playerFactor = Math.min(playerCount, 10) / 10; // 0-1 range
+      const minInterval = 1500 - (playerFactor * 700); // 1500ms down to 800ms
+      const maxInterval = 5000 - (playerFactor * 1000); // 5000ms down to 4000ms
+      const interval = minInterval + Math.random() * (maxInterval - minInterval);
+      return interval;
+    };
+
+    let timeoutId: number;
+
+    const playAmbientSound = () => {
+      // Pick a random blob to "speak"
+      const randomPlayer = players[Math.floor(Math.random() * players.length)];
+      if (randomPlayer) {
+        setSpeakingPlayerId(randomPlayer._id);
+        // Clear the speaking state after animation duration
+        setTimeout(() => setSpeakingPlayerId(null), 400);
+      }
+
+      play("blobAmbient");
+      // Schedule next sound with new random interval
+      timeoutId = window.setTimeout(playAmbientSound, scheduleNextSound());
+    };
+
+    // Start the ambient sound loop after a short initial delay
+    timeoutId = window.setTimeout(playAmbientSound, scheduleNextSound());
+
+    // Cleanup: clear timeout when leaving lobby or unmounting
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isLobby, playerCount, players, play]);
+
   // Session not found
   if (session === null) {
     return (
@@ -105,6 +232,16 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
   if (session.status === "finished") {
     return (
       <div className="spectator-view spectator-finished">
+        {/* Sound toggle button */}
+        <button
+          className="spectator-sound-toggle"
+          onClick={toggleMute}
+          aria-label={muted ? "Unmute sounds" : "Mute sounds"}
+          title={muted ? "Unmute sounds" : "Mute sounds"}
+        >
+          {muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}
+        </button>
+
         <h1 className="spectator-title">Game Over!</h1>
         <div className="spectator-leaderboard">
           <h2>Final Results</h2>
@@ -132,13 +269,23 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
   if (session.status === "lobby") {
     return (
       <div className="spectator-view spectator-lobby">
+        {/* Sound toggle button */}
+        <button
+          className="spectator-sound-toggle"
+          onClick={toggleMute}
+          aria-label={muted ? "Unmute sounds" : "Mute sounds"}
+          title={muted ? "Unmute sounds" : "Mute sounds"}
+        >
+          {muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}
+        </button>
+
         {/* Animated blob avatars in safe zones */}
         {players && players.length > 0 && (
           <div className="spectator-lobby-blobs">
             {players.map((player, index) => (
               <div
                 key={player._id}
-                className={`lobby-blob ${getIdleAnimation(player.name)} ${getLobbyBlobPosition(index, players.length)}`}
+                className={`lobby-blob ${getIdleAnimation(player.name)} ${getLobbyBlobPosition(index, players.length)}${speakingPlayerId === player._id ? " blob-speaking" : ""}`}
                 style={getLobbyBlobStyle(index, players.length)}
               >
                 <Blob
@@ -162,6 +309,59 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
           <span className="label">players joined</span>
         </div>
         <p className="waiting-text">Waiting for host to start...</p>
+      </div>
+    );
+  }
+
+  // Pre-game phase - game started but no question shown yet
+  const isPreGame = session.status === "active" && session.currentQuestionIndex === -1;
+
+  if (isPreGame) {
+    return (
+      <div className="spectator-fullscreen spectator-pregame">
+        {/* Session code badge (top-left, for late joiners) */}
+        <div className="spectator-session-badge">
+          Join: {session.code}
+        </div>
+
+        {/* Sound toggle button */}
+        <button
+          className="spectator-sound-toggle"
+          onClick={toggleMute}
+          aria-label={muted ? "Unmute sounds" : "Mute sounds"}
+          title={muted ? "Unmute sounds" : "Mute sounds"}
+        >
+          {muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}
+        </button>
+
+        {/* Full-screen mountain without question */}
+        <div className="spectator-mountain-fullscreen">
+          <Mountain
+            players={
+              players?.map((p) => ({
+                id: p._id,
+                name: p.name,
+                elevation: p.elevation,
+              })) ?? []
+            }
+            mode="spectator"
+            width={dimensions.width}
+            height={dimensions.height}
+            ropeClimbingState={null}
+            skyQuestion={null}
+          />
+        </div>
+
+        {/* "Get Ready!" overlay */}
+        <div className="pregame-overlay">
+          <h1 className="pregame-title">Get Ready!</h1>
+          <p className="pregame-subtitle">The climb begins...</p>
+        </div>
+
+        {/* Player count indicator */}
+        <div className="spectator-player-indicator">
+          {players?.length ?? 0} climbers
+        </div>
       </div>
     );
   }
@@ -197,22 +397,34 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
         Join: {session.code}
       </div>
 
-      {/* Timer overlay (top-right) - only show when answers are shown */}
-      {currentQuestion && questionPhase !== "question_shown" && (
-        <div className="spectator-timer-overlay">
-          <Timer
-            firstAnsweredAt={timingInfo?.firstAnsweredAt ?? null}
-            timeLimit={currentQuestion.timeLimit}
-            size="large"
-            isRevealed={ropeClimbingState?.timing.isRevealed ?? false}
-            correctAnswer={ropeClimbingState?.ropes.find((r) => r.isCorrect === true)?.optionText}
-            correctCount={ropeClimbingState?.ropes.find((r) => r.isCorrect === true)?.players.length}
-            totalAnswered={ropeClimbingState?.answeredCount}
-          />
+      {/* Sound toggle button */}
+      <button
+        className="spectator-sound-toggle"
+        onClick={toggleMute}
+        aria-label={muted ? "Unmute sounds" : "Mute sounds"}
+        title={muted ? "Unmute sounds" : "Mute sounds"}
+      >
+        {muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}
+      </button>
+
+      {/* Answer labels are now rendered in the Mountain SVG at the top of each rope */}
+
+      {/* Question overlay - positioned as HTML above the SVG for guaranteed visibility */}
+      {skyQuestion && (
+        <div className="spectator-question-overlay">
+          <div className="spectator-question-number">
+            Question {skyQuestion.questionNumber} of {skyQuestion.totalQuestions}
+          </div>
+          <div className="spectator-question-text">
+            {skyQuestion.text}
+          </div>
+          {skyQuestion.phase === "question_shown" && (
+            <div className="spectator-question-hint">Get ready...</div>
+          )}
         </div>
       )}
 
-      {/* Full-screen mountain with question in the sky */}
+      {/* Full-screen mountain (question is now rendered as HTML overlay above) */}
       <div className="spectator-mountain-fullscreen">
         <Mountain
           players={
@@ -226,7 +438,7 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
           width={dimensions.width}
           height={dimensions.height}
           ropeClimbingState={ropeClimbingState}
-          skyQuestion={skyQuestion}
+          skyQuestion={null}
         />
 
         {/* Leaderboard overlay during results phase */}
@@ -328,6 +540,7 @@ function getBlobSize(totalPlayers: number): number {
   return 70;
 }
 
+
 /**
  * SpectatorJoin - Entry screen to join a session as spectator
  */
@@ -351,7 +564,7 @@ export function SpectatorJoin({ onJoin, onBack }: { onJoin: (code: string) => vo
       <form onSubmit={handleSubmit}>
         <input
           type="text"
-          placeholder="Session Code"
+          placeholder="Code"
           value={code}
           onChange={(e) => setCode(e.target.value.toUpperCase())}
           maxLength={4}

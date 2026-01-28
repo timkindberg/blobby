@@ -65,11 +65,16 @@ describe("questions.getCurrentQuestion with disabled questions", () => {
     await t.mutation(api.questions.setEnabled, { questionId: q1, enabled: false });
     await t.mutation(api.questions.setEnabled, { questionId: q2, enabled: false });
 
-    // Start the session - currentQuestionIndex becomes 0
+    // Start the session - goes to pre_game phase (currentQuestionIndex becomes -1)
     await t.mutation(api.sessions.start, { sessionId });
 
-    // getCurrentQuestion should return q0 (first enabled question)
+    // In pre_game, getCurrentQuestion should return null (no question yet)
     let currentQ = await t.query(api.questions.getCurrentQuestion, { sessionId });
+    expect(currentQ).toBeNull();
+
+    // Move to first question - should show q0 (first enabled question)
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
+    currentQ = await t.query(api.questions.getCurrentQuestion, { sessionId });
     expect(currentQ).not.toBeNull();
     expect(currentQ!._id).toBe(q0);
     expect(currentQ!.text).toBe("Question 0 (enabled)");
@@ -123,17 +128,22 @@ describe("questions.getCurrentQuestion with disabled questions", () => {
     await t.mutation(api.questions.setEnabled, { questionId: q0, enabled: false });
     await t.mutation(api.questions.setEnabled, { questionId: q1, enabled: false });
 
-    // Start session
+    // Start session (goes to pre_game with currentQuestionIndex = -1)
     await t.mutation(api.sessions.start, { sessionId });
 
-    // getCurrentQuestion should return q2 (first enabled question)
-    const currentQ = await t.query(api.questions.getCurrentQuestion, { sessionId });
+    // In pre_game, getCurrentQuestion should return null
+    let currentQ = await t.query(api.questions.getCurrentQuestion, { sessionId });
+    expect(currentQ).toBeNull();
+
+    // Move to first question - should be q2 (first enabled question)
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
+    currentQ = await t.query(api.questions.getCurrentQuestion, { sessionId });
     expect(currentQ).not.toBeNull();
     expect(currentQ!._id).toBe(q2);
     expect(currentQ!.text).toBe("Question 2 (enabled - should be first)");
   });
 
-  test("returns null when currentQuestionIndex is -1 (lobby state)", async () => {
+  test("returns null when currentQuestionIndex is -1 (lobby or pre_game state)", async () => {
     const t = convexTest(schema, modules);
 
     const { sessionId } = await t.mutation(api.sessions.create, {
@@ -151,9 +161,19 @@ describe("questions.getCurrentQuestion with disabled questions", () => {
       timeLimit: 30,
     });
 
-    // Don't start the session - currentQuestionIndex is -1
-    const currentQ = await t.query(api.questions.getCurrentQuestion, { sessionId });
+    // In lobby state - currentQuestionIndex is -1
+    let currentQ = await t.query(api.questions.getCurrentQuestion, { sessionId });
     expect(currentQ).toBeNull();
+
+    // Start session (goes to pre_game) - currentQuestionIndex is still -1
+    await t.mutation(api.sessions.start, { sessionId });
+    currentQ = await t.query(api.questions.getCurrentQuestion, { sessionId });
+    expect(currentQ).toBeNull();
+
+    // Move to first question - should now have a current question
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
+    currentQ = await t.query(api.questions.getCurrentQuestion, { sessionId });
+    expect(currentQ).not.toBeNull();
   });
 });
 
@@ -215,8 +235,14 @@ describe("sessions.nextQuestion with disabled questions", () => {
 
     await t.mutation(api.sessions.start, { sessionId });
 
-    // Verify we start at q0
+    // After start, we're in pre_game phase with currentQuestionIndex = -1
     let session = await t.query(api.sessions.get, { sessionId });
+    expect(session!.currentQuestionIndex).toBe(-1);
+    expect(session!.questionPhase).toBe("pre_game");
+
+    // Move to first question - should be q0
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
+    session = await t.query(api.sessions.get, { sessionId });
     expect(session!.currentQuestionIndex).toBe(0);
     let currentQ = await t.query(api.questions.getCurrentQuestion, { sessionId });
     expect(currentQ!._id).toBe(q0);
@@ -279,7 +305,12 @@ describe("sessions.nextQuestion with disabled questions", () => {
 
     await t.mutation(api.sessions.start, { sessionId });
 
-    // Verify we're on q0
+    // After start, we're in pre_game phase
+    let session = await t.query(api.sessions.get, { sessionId });
+    expect(session!.questionPhase).toBe("pre_game");
+
+    // Move to first question - should be q0
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
     let currentQ = await t.query(api.questions.getCurrentQuestion, { sessionId });
     expect(currentQ!._id).toBe(q0);
 
@@ -287,7 +318,7 @@ describe("sessions.nextQuestion with disabled questions", () => {
     const result = await t.mutation(api.sessions.nextQuestion, { sessionId });
     expect(result.finished).toBe(true);
 
-    const session = await t.query(api.sessions.get, { sessionId });
+    session = await t.query(api.sessions.get, { sessionId });
     expect(session!.status).toBe("finished");
   });
 
@@ -336,8 +367,13 @@ describe("sessions.nextQuestion with disabled questions", () => {
 
     await t.mutation(api.sessions.start, { sessionId });
 
-    // currentQuestionIndex should be 0 (first enabled question is Q1)
+    // After start, we're in pre_game phase with currentQuestionIndex = -1
     let session = await t.query(api.sessions.get, { sessionId });
+    expect(session!.currentQuestionIndex).toBe(-1);
+
+    // Move to first question
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
+    session = await t.query(api.sessions.get, { sessionId });
     expect(session!.currentQuestionIndex).toBe(0);
 
     // After next, currentQuestionIndex should be 1 (second enabled question is Q3)
@@ -404,11 +440,12 @@ describe("sessions.start with disabled questions", () => {
 
     await t.mutation(api.questions.setEnabled, { questionId: q0, enabled: false });
 
-    // Starting should succeed
+    // Starting should succeed (goes to pre_game phase)
     await t.mutation(api.sessions.start, { sessionId });
 
     const session = await t.query(api.sessions.get, { sessionId });
     expect(session!.status).toBe("active");
-    expect(session!.currentQuestionIndex).toBe(0);
+    expect(session!.currentQuestionIndex).toBe(-1);
+    expect(session!.questionPhase).toBe("pre_game");
   });
 });

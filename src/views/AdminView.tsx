@@ -7,7 +7,7 @@ import type { RopeClimbingState } from "../../lib/ropeTypes";
 
 // Types for host action button
 type SessionStatus = "lobby" | "active" | "finished";
-type QuestionPhase = "question_shown" | "answers_shown" | "revealed" | "results" | undefined;
+type QuestionPhase = "pre_game" | "question_shown" | "answers_shown" | "revealed" | "results" | undefined;
 
 interface HostActionConfig {
   label: string;
@@ -45,6 +45,12 @@ function useHostAction(
 
     case "active":
       switch (questionPhase) {
+        case "pre_game":
+          return {
+            label: "First Question",
+            action: async () => { await nextQuestion({ sessionId }); },
+            disabled: false,
+          };
         case "question_shown":
           return {
             label: "Show Answers",
@@ -90,6 +96,77 @@ function useHostAction(
   }
 }
 
+// Hook to determine the back action based on session state
+function useBackAction(
+  sessionId: Id<"sessions"> | null,
+  sessionStatus: SessionStatus | undefined,
+  questionPhase: QuestionPhase,
+  currentQuestionIndex: number
+): HostActionConfig | null {
+  const previousPhase = useMutation(api.sessions.previousPhase);
+
+  if (!sessionId || !sessionStatus) return null;
+
+  // No back action in lobby or finished state
+  if (sessionStatus !== "active") return null;
+
+  // Determine the back action based on current phase
+  switch (questionPhase) {
+    case "pre_game":
+      // Pre-game -> Lobby
+      return {
+        label: "<- Lobby",
+        action: async () => { await previousPhase({ sessionId }); },
+        disabled: false,
+        isDestructive: false, // No answers or progress to lose yet
+      };
+    case "results":
+      return {
+        label: "<- Revealed",
+        action: async () => { await previousPhase({ sessionId }); },
+        disabled: false,
+        isDestructive: false,
+      };
+    case "revealed":
+      return {
+        label: "<- Hide Answer",
+        action: async () => { await previousPhase({ sessionId }); },
+        disabled: false,
+        isDestructive: false,
+      };
+    case "answers_shown":
+      return {
+        label: "<- Clear Answers",
+        action: async () => {
+          if (confirm("This will delete all answers for this question. Continue?")) {
+            await previousPhase({ sessionId });
+          }
+        },
+        disabled: false,
+        isDestructive: true,
+      };
+    case "question_shown":
+      if (currentQuestionIndex > 0) {
+        return {
+          label: `<- Q${currentQuestionIndex} Results`,
+          action: async () => { await previousPhase({ sessionId }); },
+          disabled: false,
+          isDestructive: false,
+        };
+      } else {
+        // Q1 -> Pre-game (safe: no progress lost, just going back to hype phase)
+        return {
+          label: "<- Pre-Game",
+          action: async () => { await previousPhase({ sessionId }); },
+          disabled: false,
+          isDestructive: false,
+        };
+      }
+    default:
+      return null;
+  }
+}
+
 // Host Action Button Component
 function HostActionButton({
   sessionId,
@@ -105,12 +182,20 @@ function HostActionButton({
   currentQuestionIndex: number;
 }) {
   const [isLoading, setIsLoading] = useState(false);
+  const [isBackLoading, setIsBackLoading] = useState(false);
 
   const actionConfig = useHostAction(
     sessionId,
     sessionStatus,
     questionPhase,
     enabledQuestionCount,
+    currentQuestionIndex
+  );
+
+  const backConfig = useBackAction(
+    sessionId,
+    sessionStatus,
+    questionPhase,
     currentQuestionIndex
   );
 
@@ -128,6 +213,19 @@ function HostActionButton({
     }
   }, [actionConfig, isLoading]);
 
+  const handleBackAction = useCallback(async () => {
+    if (!backConfig || backConfig.disabled || isBackLoading) return;
+
+    setIsBackLoading(true);
+    try {
+      await backConfig.action();
+    } catch (error) {
+      console.error("Back action failed:", error);
+    } finally {
+      setTimeout(() => setIsBackLoading(false), 300);
+    }
+  }, [backConfig, isBackLoading]);
+
   // Keyboard shortcut handler
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -141,32 +239,50 @@ function HostActionButton({
         return;
       }
 
-      // Spacebar or Enter triggers the action
+      // Spacebar or Enter triggers the forward action
       if (event.code === "Space" || event.code === "Enter") {
         event.preventDefault();
         handleAction();
+      }
+
+      // Backspace triggers the back action (if available)
+      if (event.code === "Backspace" && backConfig && !backConfig.disabled) {
+        event.preventDefault();
+        handleBackAction();
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleAction]);
+  }, [handleAction, handleBackAction, backConfig]);
 
   if (!actionConfig) return null;
 
   const isDisabled = actionConfig.disabled || isLoading;
+  const isBackDisabled = !backConfig || backConfig.disabled || isBackLoading;
 
   return (
     <div className="host-action-container">
-      <button
-        onClick={handleAction}
-        disabled={isDisabled}
-        className={`host-action-button ${actionConfig.isDestructive ? "destructive" : ""} ${isLoading ? "loading" : ""}`}
-      >
-        {isLoading ? "..." : actionConfig.label}
-      </button>
+      <div className="host-action-buttons">
+        {backConfig && (
+          <button
+            onClick={handleBackAction}
+            disabled={isBackDisabled}
+            className={`host-back-button ${backConfig.isDestructive ? "destructive" : ""} ${isBackLoading ? "loading" : ""}`}
+          >
+            {isBackLoading ? "..." : backConfig.label}
+          </button>
+        )}
+        <button
+          onClick={handleAction}
+          disabled={isDisabled}
+          className={`host-action-button ${actionConfig.isDestructive ? "destructive" : ""} ${isLoading ? "loading" : ""}`}
+        >
+          {isLoading ? "..." : actionConfig.label}
+        </button>
+      </div>
       <div className="host-action-hint">
-        Press <kbd>Space</kbd> or <kbd>Enter</kbd> to activate
+        Press <kbd>Space</kbd> or <kbd>Enter</kbd> to advance{backConfig && <>, <kbd>Backspace</kbd> to go back</>}
       </div>
     </div>
   );
@@ -313,24 +429,53 @@ export function AdminView({ onBack }: Props) {
     <div className="admin-view admin-dashboard">
       {/* Top bar */}
       <header className="admin-header">
-        <button onClick={() => setSessionId(null)} className="back-btn">
-          Back to Sessions
-        </button>
-        <div className="session-code-display">
-          <span className="code-label">Code:</span>
-          <button
-            onClick={copySessionCode}
-            className={`code-copy-button ${copiedCode ? "copied" : ""}`}
-            title="Click to copy session code"
-          >
-            <span className="code-value">{session.code}</span>
-            <span className="copy-icon">{copiedCode ? "✓" : "📋"}</span>
+        <div className="header-left">
+          <button onClick={() => setSessionId(null)} className="back-btn">
+            Back to Sessions
           </button>
-          <span className={`status-badge status-${session.status}`}>{session.status}</span>
+          <div className="session-code-display">
+            <span className="code-label">Code:</span>
+            <button
+              onClick={copySessionCode}
+              className={`code-copy-button ${copiedCode ? "copied" : ""}`}
+              title="Click to copy session code"
+            >
+              <span className="code-value">{session.code}</span>
+              <span className="copy-icon">{copiedCode ? "✓" : "📋"}</span>
+            </button>
+            <span className={`status-badge status-${session.status}`}>{session.status}</span>
+          </div>
         </div>
-        <button onClick={openSpectatorView} className="spectator-btn">
-          Open Spectator View
-        </button>
+        <div className="header-right">
+          <button onClick={openSpectatorView} className="header-btn spectator-btn">
+            Spectate
+          </button>
+          {session.status === "active" && (
+            <>
+              <button
+                onClick={handleBackToLobby}
+                className="header-btn secondary"
+                title="Reset game and return to editing"
+              >
+                Reset
+              </button>
+              <button
+                onClick={() => finishSession({ sessionId })}
+                className="header-btn danger"
+                title="End game early"
+              >
+                End
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => handleDelete(sessionId)}
+            className="header-btn danger"
+            title="Delete session permanently"
+          >
+            Delete
+          </button>
+        </div>
       </header>
 
       <div className="admin-content-wrapper">
@@ -360,43 +505,32 @@ export function AdminView({ onBack }: Props) {
           <HostActionButton
             sessionId={sessionId}
             sessionStatus={session.status as SessionStatus}
-            questionPhase={ropeClimbingState?.questionPhase as QuestionPhase}
+            questionPhase={
+              // Derive pre_game phase when session is active but hasn't started questions yet
+              session.status === "active" && session.currentQuestionIndex === -1
+                ? "pre_game"
+                : (ropeClimbingState?.questionPhase as QuestionPhase)
+            }
             enabledQuestionCount={enabledQuestions.length}
             currentQuestionIndex={session.currentQuestionIndex}
           />
-        </section>
 
-        {/* Game Controls */}
-        <section className="admin-section controls-section">
-          <div className="section-header">
-            <h2>Game Controls</h2>
-          </div>
-          <div className="control-buttons">
-            {session.status === "active" && (
-              <>
-                <button
-                  onClick={handleBackToLobby}
-                  className="control-btn"
-                >
-                  Back to Editing
-                </button>
-                <button
-                  onClick={() => finishSession({ sessionId })}
-                  className="control-btn danger"
-                >
-                  End Game Early
-                </button>
-              </>
-            )}
-            <button
-              onClick={() => handleDelete(sessionId)}
-              className="control-btn danger"
-            >
-              Delete Session
-            </button>
-          </div>
+          {/* Pre-game Status - right under action button */}
+          {session.status === "active" && session.currentQuestionIndex === -1 && (
+            <div className="current-question-status-inline pre-game-status">
+              <div className="cqs-header">
+                <h3>Game Started</h3>
+                <span className={`phase-badge phase-pre_game`}>
+                  Get Ready!
+                </span>
+              </div>
+              <p className="pre-game-message">
+                Players are at the base of the mountain, ready to climb!
+              </p>
+            </div>
+          )}
 
-          {/* Current Question Status */}
+          {/* Current Question Status - right under action button */}
           {session.status === "active" && currentQuestion && (
             <div className="current-question-status-inline">
               <div className="cqs-header">

@@ -9,8 +9,9 @@ export default defineSchema({
     status: v.union(v.literal("lobby"), v.literal("active"), v.literal("finished")),
     currentQuestionIndex: v.number(), // -1 means no question shown yet
     questionStartedAt: v.optional(v.number()), // When current question was shown (for speed calc)
-    // Question phase for controlling flow: question_shown -> answers_shown -> revealed -> results
+    // Question phase for controlling flow: pre_game -> question_shown -> answers_shown -> revealed -> results
     questionPhase: v.optional(v.union(
+      v.literal("pre_game"),        // Game started, players ready at base, no question yet
       v.literal("question_shown"),  // Question text visible, answers hidden
       v.literal("answers_shown"),   // Answer options visible, timer starts on first answer
       v.literal("revealed"),        // Correct answer revealed (manual host trigger)

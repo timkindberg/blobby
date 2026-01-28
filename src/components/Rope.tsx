@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react";
 import { Blob } from "./Blob";
 import { generateBlob } from "../lib/blobGenerator";
+import type { QuestionPhase } from "../../lib/ropeTypes";
 
 export interface RopePlayer {
   id: string;
@@ -17,23 +18,23 @@ export type RevealPhase = "pending" | "scissors" | "snipping" | "complete";
 interface RopeProps {
   /** Label for the rope (A, B, C, D) */
   label: string;
-  /** Answer text for this option */
-  answerText: string;
+  /** Answer text for this rope option */
+  optionText?: string;
   /** X position of the rope center */
   x: number;
   /** Top Y position (top of visible area) */
   topY: number;
   /** Bottom Y position (bottom of visible area) */
   bottomY: number;
-  /** Players currently on this rope */
+  /** Players currently on this rope (unused but kept for interface compatibility) */
   players: RopePlayer[];
-  /** Size of player blobs */
+  /** Size of player blobs (unused but kept for interface compatibility) */
   playerSize: number;
-  /** Whether to show player names */
+  /** Whether to show player names (unused but kept for interface compatibility) */
   showNames: boolean;
-  /** Current player ID to highlight */
+  /** Current player ID to highlight (unused but kept for interface compatibility) */
   currentPlayerId?: string;
-  /** Convert elevation to Y coordinate */
+  /** Convert elevation to Y coordinate (unused but kept for interface compatibility) */
   elevationToY: (elevation: number) => number;
   /** Reveal state of the rope (after timer expires) */
   revealState?: RopeRevealState;
@@ -41,8 +42,8 @@ interface RopeProps {
   cutY?: number;
   /** Current reveal phase */
   revealPhase?: RevealPhase;
-  /** Whether this is a wrong rope (for tension styling) */
-  isWrongRope?: boolean;
+  /** Current question phase - used to hide answer labels during question_shown */
+  questionPhase?: QuestionPhase;
 }
 
 /**
@@ -53,14 +54,14 @@ interface RopeProps {
  */
 export const Rope = memo(function Rope({
   label,
-  answerText,
+  optionText,
   x,
   topY,
   bottomY,
   revealState = "pending",
   cutY,
   revealPhase = "pending",
-  isWrongRope = false,
+  questionPhase,
 }: RopeProps) {
   const ropeHeight = bottomY - topY;
 
@@ -352,72 +353,114 @@ export const Rope = memo(function Rope({
         </>
       )}
 
-      {/* Label at top */}
-      <g
-        transform={`translate(${x}, ${topY - 15})`}
-        className={isCorrect ? "rope-label-correct" : ""}
-      >
-        {/* Label background */}
-        <rect
-          x="-16"
-          y="-14"
-          width="32"
-          height="24"
-          rx="6"
-          fill={isCorrect ? "rgba(22, 101, 52, 0.95)" : isWrong ? "rgba(127, 29, 29, 0.9)" : "rgba(30, 41, 59, 0.9)"}
-          stroke={isCorrect ? "rgba(74, 222, 128, 0.6)" : isWrong ? "rgba(248, 113, 113, 0.4)" : "rgba(255, 255, 255, 0.3)"}
-          strokeWidth="1"
-        />
-        {/* Checkmark or X indicator */}
-        {isCorrect && (
-          <text x="0" y="4" textAnchor="middle" fill="#4ade80" fontSize="16" fontWeight="bold">
-            ✓
-          </text>
-        )}
-        {isWrong && (
-          <text x="0" y="4" textAnchor="middle" fill="#f87171" fontSize="16" fontWeight="bold">
-            ✗
-          </text>
-        )}
-        {!isCorrect && !isWrong && (
-          <text
-            x="0"
-            y="2"
-            textAnchor="middle"
-            fill="white"
-            fontSize="14"
-            fontWeight="bold"
-            fontFamily="system-ui, sans-serif"
+      {/* Answer label at top of rope - shows letter and full answer text */}
+      {/* Hidden during question_shown phase - only show once answers are revealed */}
+      {/* Using foreignObject with HTML for proper text wrapping */}
+      {questionPhase !== "question_shown" && (
+        <foreignObject
+          x={x - 150}
+          y={topY - 95}
+          width="300"
+          height="90"
+          style={{ overflow: "visible" }}
+        >
+          <div
+            className={`rope-answer-label ${isCorrect ? "rope-answer-label-correct" : ""} ${isWrong ? "rope-answer-label-wrong" : ""}`}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "8px 12px",
+              borderRadius: "10px",
+              background: isCorrect
+                ? "rgba(22, 101, 52, 0.95)"
+                : isWrong
+                ? "rgba(127, 29, 29, 0.9)"
+                : "rgba(30, 41, 59, 0.95)",
+              border: `2px solid ${
+                isCorrect
+                  ? "rgba(74, 222, 128, 0.6)"
+                  : isWrong
+                  ? "rgba(248, 113, 113, 0.4)"
+                  : "rgba(99, 102, 241, 0.5)"
+              }`,
+              boxShadow: "0 4px 8px rgba(0, 0, 0, 0.3)",
+              maxWidth: "min(25vw, 280px)",
+              minWidth: "80px",
+              width: "fit-content",
+              margin: "0 auto",
+              boxSizing: "border-box",
+            }}
           >
-            {label}
-          </text>
-        )}
-      </g>
+            {/* Letter indicator */}
+            <span
+              style={{
+                fontSize: "11px",
+                fontWeight: 600,
+                fontFamily: "system-ui, sans-serif",
+                textTransform: "uppercase",
+                letterSpacing: "0.1em",
+                color: isCorrect
+                  ? "#86efac"
+                  : isWrong
+                  ? "rgba(252, 165, 165, 0.7)"
+                  : "rgba(255, 255, 255, 0.6)",
+                marginBottom: "4px",
+              }}
+            >
+              {label}
+            </span>
 
-      {/* Answer text tooltip (shown below label) */}
-      {answerText && (
-        <g transform={`translate(${x}, ${topY - 45})`}>
-          <rect
-            x={-Math.min(60, answerText.length * 4)}
-            y="-12"
-            width={Math.min(120, answerText.length * 8)}
-            height="20"
-            rx="4"
-            fill={isCorrect ? "rgba(22, 101, 52, 0.9)" : isWrong ? "rgba(127, 29, 29, 0.85)" : "rgba(15, 23, 42, 0.85)"}
-            stroke={isCorrect ? "rgba(74, 222, 128, 0.5)" : isWrong ? "rgba(248, 113, 113, 0.3)" : "rgba(99, 102, 241, 0.4)"}
-            strokeWidth="1"
-          />
-          <text
-            x="0"
-            y="3"
-            textAnchor="middle"
-            fill={isCorrect ? "#4ade80" : isWrong ? "#fca5a5" : "#e2e8f0"}
-            fontSize="10"
-            fontFamily="system-ui, sans-serif"
-          >
-            {answerText.length > 20 ? answerText.slice(0, 18) + "..." : answerText}
-          </text>
-        </g>
+            {/* Answer text - wraps to multiple lines */}
+            {optionText && (
+              <span
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  fontFamily: "system-ui, sans-serif",
+                  color: isCorrect ? "#4ade80" : isWrong ? "#fca5a5" : "white",
+                  textDecoration: isWrong ? "line-through" : "none",
+                  textAlign: "center",
+                  lineHeight: 1.3,
+                  display: "-webkit-box",
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                  wordBreak: "break-word",
+                }}
+              >
+                {optionText}
+              </span>
+            )}
+
+            {/* Checkmark or X indicator after reveal */}
+            {isCorrect && (
+              <span
+                style={{
+                  fontSize: "14px",
+                  fontWeight: "bold",
+                  color: "#4ade80",
+                  marginTop: "4px",
+                }}
+              >
+                ✓ Correct!
+              </span>
+            )}
+            {isWrong && (
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                  color: "#f87171",
+                  marginTop: "2px",
+                }}
+              >
+                ✗
+              </span>
+            )}
+          </div>
+        </foreignObject>
       )}
     </g>
   );
@@ -506,9 +549,12 @@ export const RopeClimber = memo(function RopeClimber({
     "--climb-distance": `${-climbDistance}px`,
   } as React.CSSProperties;
 
+  // Highlight circle size is slightly larger than the blob
+  const highlightSize = size * 1.4;
+
   return (
     <div
-      className={getRevealClass()}
+      className={`${getRevealClass()} ${isCurrentPlayer ? "current-player-highlight" : ""}`}
       style={{
         position: "absolute",
         left: x - size / 2,
@@ -519,6 +565,22 @@ export const RopeClimber = memo(function RopeClimber({
         ...customProperties,
       }}
     >
+      {/* Highlight circle behind current player's blob */}
+      {isCurrentPlayer && (
+        <div
+          className="player-highlight-circle"
+          style={{
+            position: "absolute",
+            width: highlightSize,
+            height: highlightSize,
+            left: (size - highlightSize) / 2,
+            top: (size - highlightSize) / 2,
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(255, 215, 0, 0.4) 0%, rgba(255, 215, 0, 0.15) 50%, transparent 70%)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
       <Blob config={blobConfig} size={size} state={getBlobState()} />
       {showName && (
         <div
