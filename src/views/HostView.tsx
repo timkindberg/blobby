@@ -6,6 +6,7 @@ import { Mountain } from "../components/Mountain";
 import { Timer } from "../components/Timer";
 import { MuteToggle } from "../components/MuteToggle";
 import type { RopeClimbingState } from "../../lib/ropeTypes";
+import { ConfirmationModal, useConfirmation } from "../components/ConfirmationModal";
 
 interface Props {
   onBack: () => void;
@@ -25,6 +26,7 @@ function getHostId(): string {
 export function HostView({ onBack }: Props) {
   const [sessionId, setSessionId] = useState<Id<"sessions"> | null>(null);
   const [hostId] = useState(getHostId);
+  const confirmation = useConfirmation();
 
   const createSession = useMutation(api.sessions.create);
   const deleteSession = useMutation(api.sessions.remove);
@@ -67,24 +69,38 @@ export function HostView({ onBack }: Props) {
     setSessionId(result.sessionId);
   }
 
-  async function handleDelete(id: Id<"sessions">) {
-    if (confirm("Are you sure you want to delete this session? This cannot be undone.")) {
-      try {
-        await deleteSession({ sessionId: id });
-        if (sessionId === id) {
-          setSessionId(null);
+  function handleDelete(id: Id<"sessions">) {
+    confirmation.confirm({
+      title: "Delete Session",
+      message: "Are you sure you want to delete this session? This cannot be undone.",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          await deleteSession({ sessionId: id });
+          if (sessionId === id) {
+            setSessionId(null);
+          }
+        } catch (err) {
+          console.error("Failed to delete session:", err);
         }
-      } catch (err) {
-        console.error("Failed to delete session:", err);
-      }
-    }
+      },
+    });
   }
 
-  async function handleBackToLobby() {
+  function handleBackToLobby() {
     if (!sessionId) return;
-    if (confirm("This will reset all player scores and progress. Continue?")) {
-      await backToLobby({ sessionId });
-    }
+    confirmation.confirm({
+      title: "Reset Game",
+      message: "This will reset all player scores and progress. Continue?",
+      confirmText: "Reset",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: async () => {
+        await backToLobby({ sessionId });
+      },
+    });
   }
 
   // Session list view
@@ -113,6 +129,16 @@ export function HostView({ onBack }: Props) {
             </ul>
           </section>
         )}
+        <ConfirmationModal
+          isOpen={confirmation.state.isOpen}
+          onConfirm={confirmation.handleConfirm}
+          onCancel={confirmation.handleCancel}
+          title={confirmation.state.title}
+          message={confirmation.state.message}
+          confirmText={confirmation.state.confirmText}
+          cancelText={confirmation.state.cancelText}
+          variant={confirmation.state.variant}
+        />
       </div>
     );
   }
@@ -252,6 +278,16 @@ export function HostView({ onBack }: Props) {
           </>
         )}
       </section>
+      <ConfirmationModal
+        isOpen={confirmation.state.isOpen}
+        onConfirm={confirmation.handleConfirm}
+        onCancel={confirmation.handleCancel}
+        title={confirmation.state.title}
+        message={confirmation.state.message}
+        confirmText={confirmation.state.confirmText}
+        cancelText={confirmation.state.cancelText}
+        variant={confirmation.state.variant}
+      />
     </div>
   );
 }
@@ -311,6 +347,7 @@ function QuestionItem({
   const [text, setText] = useState(question.text);
   const [options, setOptions] = useState(question.options.map(o => o.text));
   const [correctIndex, setCorrectIndex] = useState(question.correctOptionIndex);
+  const confirmation = useConfirmation();
 
   const updateQuestion = useMutation(api.questions.update);
   const deleteQuestion = useMutation(api.questions.remove);
@@ -334,10 +371,17 @@ function QuestionItem({
     setIsEditing(false);
   }
 
-  async function handleDelete() {
-    if (confirm("Delete this question?")) {
-      await deleteQuestion({ questionId: question._id });
-    }
+  function handleDelete() {
+    confirmation.confirm({
+      title: "Delete Question",
+      message: "Delete this question?",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: async () => {
+        await deleteQuestion({ questionId: question._id });
+      },
+    });
   }
 
   async function handleMoveUp() {
@@ -456,6 +500,16 @@ function QuestionItem({
           <button onClick={handleDelete} className="delete-btn">Delete</button>
         </div>
       )}
+      <ConfirmationModal
+        isOpen={confirmation.state.isOpen}
+        onConfirm={confirmation.handleConfirm}
+        onCancel={confirmation.handleCancel}
+        title={confirmation.state.title}
+        message={confirmation.state.message}
+        confirmText={confirmation.state.confirmText}
+        cancelText={confirmation.state.cancelText}
+        variant={confirmation.state.variant}
+      />
     </li>
   );
 }

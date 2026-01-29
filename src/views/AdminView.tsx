@@ -7,6 +7,7 @@ import type { RopeClimbingState } from "../../lib/ropeTypes";
 import { ErrorMessage } from "../components/ErrorMessage";
 import { getFriendlyErrorMessage } from "../lib/errorMessages";
 import { PRESENCE_TIMEOUT_MS } from "../../convex/players";
+import { ConfirmationModal, useConfirmation } from "../components/ConfirmationModal";
 
 // Helper to check if a player is currently active based on heartbeat
 function isPlayerActive(player: { lastSeenAt?: number }): boolean {
@@ -24,6 +25,7 @@ interface HostActionConfig {
   action: () => Promise<void>;
   disabled: boolean;
   isDestructive?: boolean;
+  confirmMessage?: string; // If set, requires confirmation before action
 }
 
 // Hook to determine the current host action based on session state
@@ -94,11 +96,10 @@ function useHostAction(
       return {
         label: "Reset Game",
         action: async () => {
-          if (confirm("This will reset all player scores and progress. Continue?")) {
-            await backToLobby({ sessionId });
-          }
+          await backToLobby({ sessionId });
         },
         disabled: false,
+        confirmMessage: "This will reset all player scores and progress. Continue?",
       };
 
     default:
@@ -148,12 +149,11 @@ function useBackAction(
       return {
         label: "<- Clear Answers",
         action: async () => {
-          if (confirm("This will delete all answers for this question. Continue?")) {
-            await previousPhase({ sessionId });
-          }
+          await previousPhase({ sessionId });
         },
         disabled: false,
         isDestructive: true,
+        confirmMessage: "This will delete all answers for this question. Continue?",
       };
     case "question_shown":
       if (currentQuestionIndex > 0) {
@@ -194,6 +194,7 @@ function HostActionButton({
   const [isLoading, setIsLoading] = useState(false);
   const [isBackLoading, setIsBackLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const confirmation = useConfirmation();
 
   const actionConfig = useHostAction(
     sessionId,
@@ -210,7 +211,7 @@ function HostActionButton({
     currentQuestionIndex
   );
 
-  const handleAction = useCallback(async () => {
+  const executeAction = useCallback(async () => {
     if (!actionConfig || actionConfig.disabled || isLoading) return;
 
     setIsLoading(true);
@@ -221,12 +222,11 @@ function HostActionButton({
       console.error("Action failed:", error);
       setActionError(getFriendlyErrorMessage(error));
     } finally {
-      // Brief delay to prevent rapid double-clicks
       setTimeout(() => setIsLoading(false), 300);
     }
   }, [actionConfig, isLoading]);
 
-  const handleBackAction = useCallback(async () => {
+  const executeBackAction = useCallback(async () => {
     if (!backConfig || backConfig.disabled || isBackLoading) return;
 
     setIsBackLoading(true);
@@ -240,6 +240,38 @@ function HostActionButton({
       setTimeout(() => setIsBackLoading(false), 300);
     }
   }, [backConfig, isBackLoading]);
+
+  const handleAction = useCallback(() => {
+    if (!actionConfig || actionConfig.disabled || isLoading) return;
+
+    if (actionConfig.confirmMessage) {
+      confirmation.confirm({
+        message: actionConfig.confirmMessage,
+        confirmText: "Continue",
+        cancelText: "Cancel",
+        variant: actionConfig.isDestructive ? "danger" : "default",
+        onConfirm: executeAction,
+      });
+    } else {
+      executeAction();
+    }
+  }, [actionConfig, isLoading, confirmation, executeAction]);
+
+  const handleBackAction = useCallback(() => {
+    if (!backConfig || backConfig.disabled || isBackLoading) return;
+
+    if (backConfig.confirmMessage) {
+      confirmation.confirm({
+        message: backConfig.confirmMessage,
+        confirmText: "Continue",
+        cancelText: "Cancel",
+        variant: backConfig.isDestructive ? "danger" : "default",
+        onConfirm: executeBackAction,
+      });
+    } else {
+      executeBackAction();
+    }
+  }, [backConfig, isBackLoading, confirmation, executeBackAction]);
 
   // Keyboard shortcut handler
   useEffect(() => {
@@ -305,6 +337,16 @@ function HostActionButton({
       <div className="host-action-hint">
         Press <kbd>Space</kbd> or <kbd>Enter</kbd> to advance{backConfig && <>, <kbd>Backspace</kbd> to go back</>}
       </div>
+      <ConfirmationModal
+        isOpen={confirmation.state.isOpen}
+        onConfirm={confirmation.handleConfirm}
+        onCancel={confirmation.handleCancel}
+        title={confirmation.state.title}
+        message={confirmation.state.message}
+        confirmText={confirmation.state.confirmText}
+        cancelText={confirmation.state.cancelText}
+        variant={confirmation.state.variant}
+      />
     </div>
   );
 }
@@ -330,6 +372,7 @@ export function AdminView({ onBack }: Props) {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedPlayLink, setCopiedPlayLink] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
+  const confirmation = useConfirmation();
 
   const createSession = useMutation(api.sessions.create);
   const deleteSession = useMutation(api.sessions.remove);
@@ -380,30 +423,44 @@ export function AdminView({ onBack }: Props) {
     }
   }
 
-  async function handleDelete(id: Id<"sessions">) {
-    if (confirm("Are you sure you want to delete this session? This cannot be undone.")) {
-      try {
-        await deleteSession({ sessionId: id });
-        if (sessionId === id) {
-          setSessionId(null);
+  function handleDelete(id: Id<"sessions">) {
+    confirmation.confirm({
+      title: "Delete Session",
+      message: "Are you sure you want to delete this session? This cannot be undone.",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          await deleteSession({ sessionId: id });
+          if (sessionId === id) {
+            setSessionId(null);
+          }
+          setAdminError(null);
+        } catch (err) {
+          setAdminError(getFriendlyErrorMessage(err));
         }
-        setAdminError(null);
-      } catch (err) {
-        setAdminError(getFriendlyErrorMessage(err));
-      }
-    }
+      },
+    });
   }
 
-  async function handleBackToLobby() {
+  function handleBackToLobby() {
     if (!sessionId) return;
-    if (confirm("This will reset all player scores and progress. Continue?")) {
-      try {
-        await backToLobby({ sessionId });
-        setAdminError(null);
-      } catch (err) {
-        setAdminError(getFriendlyErrorMessage(err));
-      }
-    }
+    confirmation.confirm({
+      title: "Reset Game",
+      message: "This will reset all player scores and progress. Continue?",
+      confirmText: "Reset",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          await backToLobby({ sessionId });
+          setAdminError(null);
+        } catch (err) {
+          setAdminError(getFriendlyErrorMessage(err));
+        }
+      },
+    });
   }
 
   function openSpectatorView() {
@@ -475,6 +532,16 @@ export function AdminView({ onBack }: Props) {
             </section>
           )}
         </div>
+        <ConfirmationModal
+          isOpen={confirmation.state.isOpen}
+          onConfirm={confirmation.handleConfirm}
+          onCancel={confirmation.handleCancel}
+          title={confirmation.state.title}
+          message={confirmation.state.message}
+          confirmText={confirmation.state.confirmText}
+          cancelText={confirmation.state.cancelText}
+          variant={confirmation.state.variant}
+        />
       </div>
     );
   }
@@ -711,6 +778,16 @@ export function AdminView({ onBack }: Props) {
           )}
         </section>
       </div>
+      <ConfirmationModal
+        isOpen={confirmation.state.isOpen}
+        onConfirm={confirmation.handleConfirm}
+        onCancel={confirmation.handleCancel}
+        title={confirmation.state.title}
+        message={confirmation.state.message}
+        confirmText={confirmation.state.confirmText}
+        cancelText={confirmation.state.cancelText}
+        variant={confirmation.state.variant}
+      />
     </div>
   );
 }
@@ -770,6 +847,7 @@ function QuestionItem({
   const [text, setText] = useState(question.text);
   const [options, setOptions] = useState(question.options.map(o => o.text));
   const [correctIndex, setCorrectIndex] = useState(question.correctOptionIndex);
+  const confirmation = useConfirmation();
 
   const updateQuestion = useMutation(api.questions.update);
   const deleteQuestion = useMutation(api.questions.remove);
@@ -793,10 +871,17 @@ function QuestionItem({
     setIsEditing(false);
   }
 
-  async function handleDelete() {
-    if (confirm("Delete this question?")) {
-      await deleteQuestion({ questionId: question._id });
-    }
+  function handleDelete() {
+    confirmation.confirm({
+      title: "Delete Question",
+      message: "Delete this question?",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: async () => {
+        await deleteQuestion({ questionId: question._id });
+      },
+    });
   }
 
   async function handleMoveUp() {
@@ -915,6 +1000,16 @@ function QuestionItem({
           <button onClick={handleDelete} className="delete-btn">Delete</button>
         </div>
       )}
+      <ConfirmationModal
+        isOpen={confirmation.state.isOpen}
+        onConfirm={confirmation.handleConfirm}
+        onCancel={confirmation.handleCancel}
+        title={confirmation.state.title}
+        message={confirmation.state.message}
+        confirmText={confirmation.state.confirmText}
+        cancelText={confirmation.state.cancelText}
+        variant={confirmation.state.variant}
+      />
     </li>
   );
 }
@@ -993,48 +1088,77 @@ function PlayerCard({
   showKickButton: boolean;
 }) {
   const [isKicking, setIsKicking] = useState(false);
+  const [kickError, setKickError] = useState<string | null>(null);
+  const confirmation = useConfirmation();
   const kickPlayer = useMutation(api.players.kick);
 
-  async function handleKick() {
+  function handleKick() {
     if (!player._id) {
       console.error("Cannot kick player: missing player ID");
-      alert("Cannot kick player: missing player ID");
+      setKickError("Cannot kick player: missing player ID");
       return;
     }
-    if (!confirm(`Kick ${player.name} from this session? This will remove their progress.`)) {
-      return;
-    }
-    setIsKicking(true);
-    try {
-      console.log("Kicking player:", player._id, player.name);
-      await kickPlayer({ playerId: player._id });
-      console.log("Kick mutation completed successfully for:", player._id);
-    } catch (err) {
-      console.error("Failed to kick player:", player._id, err);
-      alert(`Failed to kick player: ${err instanceof Error ? err.message : "Unknown error"}`);
-    } finally {
-      setIsKicking(false);
-    }
+    confirmation.confirm({
+      title: "Kick Player",
+      message: `Kick ${player.name} from this session? This will remove their progress.`,
+      confirmText: "Kick",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: async () => {
+        setIsKicking(true);
+        setKickError(null);
+        try {
+          console.log("Kicking player:", player._id, player.name);
+          await kickPlayer({ playerId: player._id });
+          console.log("Kick mutation completed successfully for:", player._id);
+        } catch (err) {
+          console.error("Failed to kick player:", player._id, err);
+          setKickError(`Failed to kick player: ${err instanceof Error ? err.message : "Unknown error"}`);
+        } finally {
+          setIsKicking(false);
+        }
+      },
+    });
   }
 
   const rankClass = rank === 1 ? "rank-1" : rank === 2 ? "rank-2" : rank === 3 ? "rank-3" : "";
 
   return (
-    <div className={`player-card ${rankClass} ${!isActive ? "inactive" : ""}`}>
-      <span className="player-rank">#{rank}</span>
-      <span className="player-name">{player.name}</span>
-      {!isActive && <span className="inactive-badge">Inactive</span>}
-      <span className="player-elevation">{player.elevation}m</span>
-      {showKickButton && (
-        <button
-          onClick={handleKick}
-          disabled={isKicking}
-          className="kick-btn"
-          title="Kick player from session"
-        >
-          {isKicking ? "..." : "X"}
-        </button>
-      )}
-    </div>
+    <>
+      <div className={`player-card ${rankClass} ${!isActive ? "inactive" : ""}`}>
+        <span className="player-rank">#{rank}</span>
+        <span className="player-name">{player.name}</span>
+        {!isActive && <span className="inactive-badge">Inactive</span>}
+        <span className="player-elevation">{player.elevation}m</span>
+        {showKickButton && (
+          <button
+            onClick={handleKick}
+            disabled={isKicking}
+            className="kick-btn"
+            title="Kick player from session"
+          >
+            {isKicking ? "..." : "X"}
+          </button>
+        )}
+        {kickError && (
+          <ErrorMessage
+            message={kickError}
+            onDismiss={() => setKickError(null)}
+            variant="inline"
+            autoDismissMs={5000}
+          />
+        )}
+      </div>
+      <ConfirmationModal
+        isOpen={confirmation.state.isOpen}
+        onConfirm={confirmation.handleConfirm}
+        onCancel={confirmation.handleCancel}
+        title={confirmation.state.title}
+        message={confirmation.state.message}
+        confirmText={confirmation.state.confirmText}
+        cancelText={confirmation.state.cancelText}
+        variant={confirmation.state.variant}
+      />
+    </>
   );
 }
