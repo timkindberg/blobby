@@ -472,6 +472,24 @@ function RopesOverlay({
   const revealStartedRef = useRef(false);
   const prevIsRevealedRef = useRef(false);
   const prevQuestionIdRef = useRef<string | null>(null);
+  const prevQuestionPhaseRef = useRef<QuestionPhase | null>(null);
+
+  // Reset reveal state when stepping backward from revealed phase
+  // This handles the "Hide Answers" button going from revealed -> answers_shown
+  useEffect(() => {
+    const prevPhase = prevQuestionPhaseRef.current;
+    const currentPhase = questionPhase;
+    prevQuestionPhaseRef.current = currentPhase;
+
+    // Detect backward transition: was 'revealed' and now isn't
+    if (prevPhase === "revealed" && currentPhase !== "revealed") {
+      // Reset all reveal-related state
+      revealStartedRef.current = false;
+      setRevealPhase("pending");
+      setSnippedRopes(new Set());
+      prevIsRevealedRef.current = false;
+    }
+  }, [questionPhase]);
 
   // Get indices of ALL wrong ropes (snip all wrong ladders, not just ones with players)
   const wrongRopeIndices = useMemo(() => {
