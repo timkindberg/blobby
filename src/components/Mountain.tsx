@@ -5,6 +5,7 @@ import { SUMMIT } from "../../lib/elevation";
 import { Rope, RopeClimber, type RopePlayer, type RopeRevealState, type ClimberRevealState, type RevealPhase } from "./Rope";
 import type { RopeClimbingState, RopeData, QuestionPhase } from "../../lib/ropeTypes";
 import { playSound } from "../lib/soundManager";
+import { hashString, shuffleWithSeed } from "../../lib/shuffle";
 
 export interface MountainPlayer {
   id: string;
@@ -480,9 +481,13 @@ function RopesOverlay({
       .map(({ index }) => index);
   }, [ropes]);
 
-  // Randomize the snip order once when revealed (stored in ref to avoid re-randomizing)
-  const shuffledWrongRopesRef = useRef<number[]>([]);
-  const hasShuffledRef = useRef(false);
+  // Deterministic snip order based on question ID (same order for all clients)
+  const shuffledWrongRopes = useMemo(() => {
+    if (wrongRopeIndices.length === 0) return [];
+    // Use question ID as seed for deterministic shuffle
+    const seed = hashString(ropeClimbingState.question.id);
+    return shuffleWithSeed(wrongRopeIndices, seed);
+  }, [wrongRopeIndices, ropeClimbingState.question.id]);
 
   // Orchestrate the reveal sequence
   useEffect(() => {
@@ -490,8 +495,6 @@ function RopesOverlay({
     if (ropeClimbingState.question.id !== prevQuestionIdRef.current) {
       prevQuestionIdRef.current = ropeClimbingState.question.id;
       revealStartedRef.current = false;
-      hasShuffledRef.current = false; // Reset shuffle state for new question
-      shuffledWrongRopesRef.current = [];
       setRevealPhase("pending");
       setSnippedRopes(new Set());
       prevIsRevealedRef.current = false;
@@ -501,13 +504,6 @@ function RopesOverlay({
     // Only start reveal sequence once per question
     if (isRevealed && !prevIsRevealedRef.current && !revealStartedRef.current) {
       revealStartedRef.current = true;
-
-      // Shuffle the wrong rope indices for randomized snip order (only once per reveal)
-      if (!hasShuffledRef.current) {
-        shuffledWrongRopesRef.current = [...wrongRopeIndices].sort(() => Math.random() - 0.5);
-        hasShuffledRef.current = true;
-      }
-      const shuffledWrongRopes = shuffledWrongRopesRef.current;
 
       // PHASE 1: Show scissors on ALL ropes (0ms)
       setRevealPhase("scissors");
@@ -603,7 +599,7 @@ function RopesOverlay({
     }
 
     prevIsRevealedRef.current = isRevealed;
-  }, [isRevealed, ropeClimbingState.question.id, wrongRopeIndices, ropes]);
+  }, [isRevealed, ropeClimbingState.question.id, shuffledWrongRopes, ropes]);
 
   // Calculate rope positions - evenly spaced across the width
   const ropeCount = ropes.length;

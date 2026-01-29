@@ -528,6 +528,48 @@ li.you {
   color: white;
 }
 
+.result-banner.tension {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+  animation: tension-pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes tension-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 6px 30px rgba(245, 158, 11, 0.6);
+  }
+}
+
+.scissors-icon {
+  font-size: 2rem;
+  animation: scissors-snip 0.5s ease-in-out infinite;
+  display: inline-block;
+}
+
+@keyframes scissors-snip {
+  0%, 100% { transform: rotate(-15deg); }
+  50% { transform: rotate(15deg); }
+}
+
+.tension-text {
+  font-size: 1.8rem;
+  letter-spacing: 0.3em;
+  animation: tension-dots 1s steps(3, end) infinite;
+}
+
+@keyframes tension-dots {
+  0% { opacity: 0.3; }
+  33% { opacity: 0.6; }
+  66% { opacity: 0.9; }
+  100% { opacity: 0.3; }
+}
+
 .result-text {
   font-size: 1.5rem;
   font-weight: 800;

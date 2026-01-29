@@ -14,7 +14,7 @@ import { Blob } from "../components/Blob";
 import { generateBlob } from "../lib/blobGenerator";
 import { ErrorMessage } from "../components/ErrorMessage";
 import { getFriendlyErrorMessage } from "../lib/errorMessages";
-import { shuffleOptions } from "../../lib/shuffle";
+import { shuffleOptions, hashString, shuffleWithSeed } from "../../lib/shuffle";
 
 // localStorage helpers for session persistence
 // Using localStorage so players can rejoin after closing the browser/tab
@@ -179,6 +179,105 @@ export function PlayerView({ onBack, initialCode }: Props) {
 
   const submitAnswer = useMutation(api.answers.submit);
 
+  // State for delayed result reveal - syncs with spectator view scissors animation
+  const [playerResultRevealed, setPlayerResultRevealed] = useState(false);
+  const revealTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const prevRevealedQuestionRef = useRef<string | null>(null);
+
+  // Calculate when this player's result should be revealed based on the snip sequence
+  useEffect(() => {
+    if (!ropeClimbingState || !playerId || !currentQuestion) {
+      return;
+    }
+
+    const questionId = currentQuestion._id;
+    const isRevealed = ropeClimbingState.timing.isRevealed;
+
+    // Reset when question changes
+    if (questionId !== prevRevealedQuestionRef.current) {
+      prevRevealedQuestionRef.current = questionId;
+      setPlayerResultRevealed(false);
+      if (revealTimerRef.current) {
+        clearTimeout(revealTimerRef.current);
+        revealTimerRef.current = null;
+      }
+    }
+
+    // Only start timing when revealed phase begins
+    if (!isRevealed || playerResultRevealed) {
+      return;
+    }
+
+    // Find which rope the player is on (if any)
+    const playerRopeIndex = ropeClimbingState.ropes.findIndex(
+      rope => rope.players.some(p => p.playerId === playerId)
+    );
+
+    // If player didn't answer, reveal immediately
+    if (playerRopeIndex === -1) {
+      setPlayerResultRevealed(true);
+      return;
+    }
+
+    const playerRope = ropeClimbingState.ropes[playerRopeIndex];
+    const isCorrect = playerRope?.isCorrect === true;
+
+    // Get wrong rope indices and shuffle them with the same seed as Mountain.tsx
+    const wrongRopeIndices = ropeClimbingState.ropes
+      .map((rope, i) => ({ rope, index: i }))
+      .filter(({ rope }) => rope.isCorrect === false)
+      .map(({ index }) => index);
+
+    const seed = hashString(questionId);
+    const shuffledWrongRopes = shuffleWithSeed(wrongRopeIndices, seed);
+
+    // Timing constants (must match Mountain.tsx reveal sequence)
+    // Phase 1: Scissors appear at 0ms
+    // Phase 2: Tension at 500ms
+    // Phase 3: Snipping starts at 1500ms
+    // Between snips: 800ms each
+    // After last snip to complete: 500ms
+    const SNIP_START_DELAY = 1500; // When snipping begins
+    const SNIP_INTERVAL = 800; // Time between each snip
+
+    let delayMs: number;
+
+    if (isCorrect) {
+      // Correct answer: reveal after ALL wrong ropes are snipped
+      // Player sees "Correct!" when their rope is spared (all others cut)
+      const numWrongRopes = shuffledWrongRopes.length;
+      if (numWrongRopes === 0) {
+        // No wrong ropes to snip, reveal immediately after tension
+        delayMs = SNIP_START_DELAY;
+      } else {
+        // Wait for all snips + completion delay
+        delayMs = SNIP_START_DELAY + (numWrongRopes - 1) * SNIP_INTERVAL + 500;
+      }
+    } else {
+      // Wrong answer: reveal when THIS player's rope is snipped
+      const snipPosition = shuffledWrongRopes.indexOf(playerRopeIndex);
+      if (snipPosition === -1) {
+        // Shouldn't happen, but fallback to immediate reveal
+        delayMs = SNIP_START_DELAY;
+      } else {
+        // Wait until this rope is snipped
+        delayMs = SNIP_START_DELAY + snipPosition * SNIP_INTERVAL;
+      }
+    }
+
+    // Set timer to reveal player's result
+    revealTimerRef.current = setTimeout(() => {
+      setPlayerResultRevealed(true);
+    }, delayMs);
+
+    return () => {
+      if (revealTimerRef.current) {
+        clearTimeout(revealTimerRef.current);
+        revealTimerRef.current = null;
+      }
+    };
+  }, [ropeClimbingState, playerId, currentQuestion, playerResultRevealed]);
+
   // Track if timer has expired locally
   const [timerExpired, setTimerExpired] = useState(false);
 
@@ -291,15 +390,14 @@ export function PlayerView({ onBack, initialCode }: Props) {
     }
   }
 
-  // Play reveal sounds when transitioning to "revealed" phase (player plays only THEIR sounds)
+  // Play reveal sounds when player's result is revealed (synced with scissors animation)
   useEffect(() => {
     if (!ropeClimbingState || !playerId || !currentQuestion) return;
 
     const questionId = currentQuestion._id;
-    const phase = ropeClimbingState.questionPhase;
 
-    // Only play once per question when transitioning to revealed phase
-    if (phase === "revealed" && hasPlayedRevealSoundsRef.current !== questionId) {
+    // Only play sounds when playerResultRevealed becomes true
+    if (playerResultRevealed && hasPlayedRevealSoundsRef.current !== questionId) {
       hasPlayedRevealSoundsRef.current = questionId;
 
       // Find if this player answered and if they were correct
@@ -325,11 +423,11 @@ export function PlayerView({ onBack, initialCode }: Props) {
       }
     }
 
-    // Reset when phase changes away from revealed
-    if (phase !== "revealed") {
+    // Reset when question changes (playerResultRevealed will also reset)
+    if (!playerResultRevealed) {
       hasPlayedRevealSoundsRef.current = null;
     }
-  }, [ropeClimbingState, currentQuestion?._id, playerId, play]);
+  }, [ropeClimbingState, currentQuestion?._id, playerId, play, playerResultRevealed]);
 
   // Play pop/giggle sounds when new players join the lobby
   useEffect(() => {
@@ -703,60 +801,72 @@ export function PlayerView({ onBack, initialCode }: Props) {
 
             return (
               <div className="reveal-feedback">
-                {/* Prominent result message */}
-                {didAnswer ? (
-                  <div className={`result-banner ${isCorrect ? 'correct' : 'wrong'}`}>
-                    {isCorrect ? (
-                      <>
-                        <span className="result-text">CORRECT!</span>
-                        <span className="elevation-gain">+100m</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="result-text">WRONG!</span>
-                        <span className="elevation-gain">+0m</span>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <div className="result-banner no-answer">
-                    <span className="result-text">No Answer</span>
-                    <span className="elevation-gain">+0m</span>
+                {/* Tension state while waiting for result - show scissors animation */}
+                {!playerResultRevealed && (
+                  <div className="result-banner tension">
+                    <span className="scissors-icon">✂️</span>
+                    <span className="result-text tension-text">...</span>
                   </div>
                 )}
 
-                {/* Show all options with highlighting (in shuffled order) */}
-                <div className="options revealed">
-                  {optionsToDisplay.map((item, visualIndex) => {
-                    const originalIndex = item.originalIndex;
-                    const rope = ropeClimbingState.ropes[originalIndex];
-                    const isThisCorrect = rope?.isCorrect === true;
-                    const isPlayerSelection = originalIndex === playerSelectedOriginalIndex;
+                {/* Prominent result message - only show after player's result is revealed */}
+                {playerResultRevealed && (
+                  didAnswer ? (
+                    <div className={`result-banner ${isCorrect ? 'correct' : 'wrong'}`}>
+                      {isCorrect ? (
+                        <>
+                          <span className="result-text">CORRECT!</span>
+                          <span className="elevation-gain">+100m</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="result-text">WRONG!</span>
+                          <span className="elevation-gain">+0m</span>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="result-banner no-answer">
+                      <span className="result-text">No Answer</span>
+                      <span className="elevation-gain">+0m</span>
+                    </div>
+                  )
+                )}
 
-                    let className = 'option-revealed';
-                    if (isThisCorrect) {
-                      className += ' correct-answer';
-                    }
-                    if (isPlayerSelection && !isThisCorrect) {
-                      className += ' wrong-selection';
-                    }
-                    if (isPlayerSelection) {
-                      className += ' player-selected';
-                    }
+                {/* Show all options with highlighting (in shuffled order) - only after result revealed */}
+                {playerResultRevealed && (
+                  <div className="options revealed">
+                    {optionsToDisplay.map((item, visualIndex) => {
+                      const originalIndex = item.originalIndex;
+                      const rope = ropeClimbingState.ropes[originalIndex];
+                      const isThisCorrect = rope?.isCorrect === true;
+                      const isPlayerSelection = originalIndex === playerSelectedOriginalIndex;
 
-                    // Label based on visual position (A, B, C, D for positions 0, 1, 2, 3)
-                    const visualLabel = String.fromCharCode(65 + visualIndex);
+                      let className = 'option-revealed';
+                      if (isThisCorrect) {
+                        className += ' correct-answer';
+                      }
+                      if (isPlayerSelection && !isThisCorrect) {
+                        className += ' wrong-selection';
+                      }
+                      if (isPlayerSelection) {
+                        className += ' player-selected';
+                      }
 
-                    return (
-                      <div key={originalIndex} className={className}>
-                        <span className="option-label">{visualLabel}.</span>
-                        <span className="option-text">{item.option.text}</span>
-                        {isPlayerSelection && <span className="your-pick">Your pick</span>}
-                        {isThisCorrect && <span className="correct-label">Correct</span>}
-                      </div>
-                    );
-                  })}
-                </div>
+                      // Label based on visual position (A, B, C, D for positions 0, 1, 2, 3)
+                      const visualLabel = String.fromCharCode(65 + visualIndex);
+
+                      return (
+                        <div key={originalIndex} className={className}>
+                          <span className="option-label">{visualLabel}.</span>
+                          <span className="option-text">{item.option.text}</span>
+                          {isPlayerSelection && <span className="your-pick">Your pick</span>}
+                          {isThisCorrect && <span className="correct-label">Correct</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })()}
