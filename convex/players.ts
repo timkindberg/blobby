@@ -128,3 +128,83 @@ export const disconnect = mutation({
     await ctx.db.patch(args.playerId, { lastSeenAt: 0 });
   },
 });
+
+// Check if a stored player session is still valid for rejoining
+// Returns session and player info if valid, null otherwise
+export const checkStoredSession = query({
+  args: {
+    playerId: v.id("players"),
+    sessionId: v.id("sessions"),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    const player = await ctx.db.get(args.playerId);
+
+    // Session or player doesn't exist
+    if (!session || !player) {
+      return null;
+    }
+
+    // Player doesn't belong to this session
+    if (player.sessionId !== args.sessionId) {
+      return null;
+    }
+
+    // Session is finished - can't rejoin
+    if (session.status === "finished") {
+      return null;
+    }
+
+    // Valid session found - return info for rejoin UI
+    return {
+      session: {
+        code: session.code,
+        status: session.status,
+      },
+      player: {
+        name: player.name,
+        elevation: player.elevation,
+      },
+    };
+  },
+});
+
+// Reactivate a player (update lastSeenAt to mark as active again)
+export const reactivate = mutation({
+  args: { playerId: v.id("players") },
+  handler: async (ctx, args) => {
+    const player = await ctx.db.get(args.playerId);
+    if (!player) throw new Error("Player not found");
+
+    // Check the session is still joinable
+    const session = await ctx.db.get(player.sessionId);
+    if (!session) throw new Error("Session not found");
+    if (session.status === "finished") throw new Error("Game has ended");
+
+    // Reactivate by updating heartbeat
+    await ctx.db.patch(args.playerId, { lastSeenAt: Date.now() });
+    return player._id;
+  },
+});
+
+// Kick a player from a session - removes them entirely
+export const kick = mutation({
+  args: { playerId: v.id("players") },
+  handler: async (ctx, args) => {
+    const player = await ctx.db.get(args.playerId);
+    if (!player) throw new Error("Player not found");
+
+    // Delete all answers by this player
+    const answers = await ctx.db
+      .query("answers")
+      .withIndex("by_player", (q) => q.eq("playerId", args.playerId))
+      .collect();
+
+    for (const answer of answers) {
+      await ctx.db.delete(answer._id);
+    }
+
+    // Delete the player record
+    await ctx.db.delete(args.playerId);
+  },
+});

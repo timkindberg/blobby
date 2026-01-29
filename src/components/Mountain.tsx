@@ -50,6 +50,13 @@ interface MountainProps {
   ropeClimbingState?: RopeClimbingState | null;
   /** Question to display in the sky (spectator full-screen mode) */
   skyQuestion?: SkyQuestion | null;
+  /**
+   * Shuffled answer order for randomized display.
+   * Array of original indices in shuffled order.
+   * e.g., [2, 0, 3, 1] means: position 0 shows original answer 2, position 1 shows original answer 0, etc.
+   * If not provided, answers are shown in original order.
+   */
+  answerShuffleOrder?: number[];
 }
 
 // Number of checkpoints (every 100m from 0 to 1000)
@@ -106,6 +113,7 @@ export function Mountain({
   className = "",
   ropeClimbingState,
   skyQuestion,
+  answerShuffleOrder,
 }: MountainProps) {
   // Determine if ropes should be shown
   const showRopes = ropeClimbingState !== null && ropeClimbingState !== undefined;
@@ -397,6 +405,8 @@ export function Mountain({
           currentPlayerId={currentPlayerId}
           mode={mode}
           questionPhase={ropeClimbingState.questionPhase}
+          currentPlayerElevation={currentPlayerElevation}
+          answerShuffleOrder={answerShuffleOrder}
         />
       ) : (
         /* Player blobs (positioned absolutely over SVG) */
@@ -432,6 +442,8 @@ function RopesOverlay({
   currentPlayerId,
   mode,
   questionPhase,
+  currentPlayerElevation,
+  answerShuffleOrder,
 }: {
   ropeClimbingState: RopeClimbingState;
   width: number;
@@ -443,6 +455,10 @@ function RopesOverlay({
   currentPlayerId?: string;
   mode: MountainMode;
   questionPhase: QuestionPhase;
+  /** Current player's elevation - used to position scissors in player view */
+  currentPlayerElevation?: number;
+  /** Shuffled order - array of original indices in visual order. If provided, ropes are displayed in this order. */
+  answerShuffleOrder?: number[];
 }) {
   const { ropes, notAnswered, timing } = ropeClimbingState;
   const isRevealed = timing.isRevealed;
@@ -595,19 +611,61 @@ function RopesOverlay({
   const usableWidth = width - padding * 2;
   const ropeSpacing = ropeCount > 1 ? usableWidth / (ropeCount - 1) : 0;
 
-  // Get rope X positions
-  const ropeXPositions = ropes.map((_, i) => {
+  // Visual order for ropes - maps visual position to original rope index
+  // If answerShuffleOrder is provided, use it; otherwise use natural order [0, 1, 2, ...]
+  const visualOrder = answerShuffleOrder && answerShuffleOrder.length === ropeCount
+    ? answerShuffleOrder
+    : ropes.map((_, i) => i);
+
+  // Reverse mapping: original index -> visual position
+  const originalToVisualPosition = useMemo(() => {
+    const mapping = new Map<number, number>();
+    visualOrder.forEach((originalIndex, visualPosition) => {
+      mapping.set(originalIndex, visualPosition);
+    });
+    return mapping;
+  }, [visualOrder]);
+
+  // Get X position for a visual position (0 = leftmost, 1 = second from left, etc.)
+  const getXForVisualPosition = (visualPosition: number): number => {
     if (ropeCount === 1) return width / 2;
-    return padding + i * ropeSpacing;
-  });
+    return padding + visualPosition * ropeSpacing;
+  };
+
+  // Get X position for an original rope index (uses the shuffle mapping)
+  const getXForOriginalIndex = (originalIndex: number): number => {
+    const visualPos = originalToVisualPosition.get(originalIndex) ?? originalIndex;
+    return getXForVisualPosition(visualPos);
+  };
+
+  // Legacy ropeXPositions for backward compatibility - maps original index to X position
+  const ropeXPositions = ropes.map((_, originalIndex) => getXForOriginalIndex(originalIndex));
 
   // Calculate rope top and bottom Y positions
   // IMPORTANT: Ropes should stop at the summit line, not extend into the sky area
   const ropeTopY = elevationToY(SUMMIT);
   const ropeBottomY = elevationToY(minElevation);
 
-  // Labels for ropes (A, B, C, D, etc.)
-  const ropeLabels = ropes.map((_, i) => String.fromCharCode(65 + i));
+  // For player mode, calculate scissors position relative to their visible viewport
+  // In spectator/admin mode, scissors appear at the summit line (ropeTopY)
+  // In player mode, scissors appear near the top of what the player can see
+  const scissorsBaseY = useMemo(() => {
+    if (mode === "player" && currentPlayerElevation !== undefined) {
+      // Player's visible range extends to currentPlayerElevation + 200 (from the viewport calculation)
+      // Position scissors about 150m above the player's current elevation, but clamped to visible area
+      const scissorsElevation = Math.min(SUMMIT, currentPlayerElevation + 150);
+      return elevationToY(scissorsElevation);
+    }
+    // Spectator/admin mode: scissors at summit line
+    return ropeTopY;
+  }, [mode, currentPlayerElevation, elevationToY, ropeTopY]);
+
+  // Labels for ropes (A, B, C, D, etc.) - based on VISUAL position, not original index
+  // When shuffled, the leftmost rope is always "A", second is "B", etc.
+  const ropeLabels = ropes.map((_, originalIndex) => {
+    const visualPosition = originalToVisualPosition.get(originalIndex) ?? originalIndex;
+    return String.fromCharCode(65 + visualPosition);
+  });
 
   // Determine rope reveal states based on current phase
   const getRopeRevealState = (rope: RopeData, ropeIndex: number): RopeRevealState => {
@@ -631,16 +689,16 @@ function RopesOverlay({
   };
 
   // Calculate cut Y position for wrong ropes
-  // The scissors appear at the TOP of the rope (near summit line), so the cut happens there
+  // The scissors appear relative to the player's view, so the cut happens there
   // This means: portion ABOVE scissors stays attached, portion BELOW scissors falls
   const getCutY = (rope: RopeData, ropeIndex: number): number | undefined => {
     // Only show cut for wrong ropes that have been snipped
     if (rope.isCorrect !== false) return undefined;
     if (!snippedRopes.has(ropeIndex) && revealPhase !== "complete") return undefined;
 
-    // Scissors are positioned at ropeTopY + 15, so cut should be at the same position
+    // Scissors are positioned at scissorsBaseY + 15, so cut should be at the same position
     // Add a small offset (5px) to place the cut just below the scissors blades
-    return ropeTopY + 20;
+    return scissorsBaseY + 20;
   };
 
   return (
@@ -678,9 +736,10 @@ function RopesOverlay({
           // Skip poll-mode ropes (isCorrect === null)
           if (rope.isCorrect === null) return null;
 
-          // Position scissors at the top of the ladder, just below the answer label
-          // This is more dramatic and visible than positioning near players
-          const scissorsY = ropeTopY + 15;
+          // Position scissors relative to the player's view
+          // In player mode: scissors appear near the top of their visible area
+          // In spectator/admin mode: scissors appear at the summit line (ropeTopY)
+          const scissorsY = scissorsBaseY + 15;
 
           // Determine scissors class based on rope correctness and phase
           // During scissors phase: all scissors hover menacingly

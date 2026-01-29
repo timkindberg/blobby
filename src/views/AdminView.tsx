@@ -6,6 +6,14 @@ import { Timer } from "../components/Timer";
 import type { RopeClimbingState } from "../../lib/ropeTypes";
 import { ErrorMessage } from "../components/ErrorMessage";
 import { getFriendlyErrorMessage } from "../lib/errorMessages";
+import { PRESENCE_TIMEOUT_MS } from "../../convex/players";
+
+// Helper to check if a player is currently active based on heartbeat
+function isPlayerActive(player: { lastSeenAt?: number }): boolean {
+  if (!player.lastSeenAt) return false; // Never seen = inactive
+  if (player.lastSeenAt === 0) return false; // Explicitly disconnected
+  return Date.now() - player.lastSeenAt < PRESENCE_TIMEOUT_MS;
+}
 
 // Types for host action button
 type SessionStatus = "lobby" | "active" | "finished";
@@ -472,7 +480,18 @@ export function AdminView({ onBack }: Props) {
   }
 
   const enabledQuestions = questions?.filter(q => q.enabled !== false) ?? [];
-  const sortedPlayers = [...(players ?? [])].sort((a, b) => b.elevation - a.elevation);
+
+  // Sort players: active first (by elevation desc), then inactive (by elevation desc)
+  const sortedPlayers = [...(players ?? [])].sort((a, b) => {
+    const aActive = isPlayerActive(a);
+    const bActive = isPlayerActive(b);
+    if (aActive && !bActive) return -1;
+    if (!aActive && bActive) return 1;
+    return b.elevation - a.elevation;
+  });
+
+  const activePlayers = players?.filter(p => isPlayerActive(p)) ?? [];
+  const inactivePlayers = players?.filter(p => !isPlayerActive(p)) ?? [];
 
   // Active session dashboard
   return (
@@ -670,20 +689,21 @@ export function AdminView({ onBack }: Props) {
         <section className={`admin-section players-section ${ropeClimbingState?.questionPhase === "results" ? "results-active" : ""}`}>
           <div className="section-header">
             <h2>
-              {ropeClimbingState?.questionPhase === "results" ? "Leaderboard" : `Players (${players?.length ?? 0})`}
+              {ropeClimbingState?.questionPhase === "results"
+                ? "Leaderboard"
+                : `Players (${activePlayers.length} active${inactivePlayers.length > 0 ? `, ${inactivePlayers.length} inactive` : ""})`}
             </h2>
           </div>
           {sortedPlayers.length > 0 ? (
             <div className="player-grid">
               {sortedPlayers.map((p, i) => (
-                <div
+                <PlayerCard
                   key={p._id}
-                  className={`player-card ${i === 0 ? "rank-1" : i === 1 ? "rank-2" : i === 2 ? "rank-3" : ""}`}
-                >
-                  <span className="player-rank">#{i + 1}</span>
-                  <span className="player-name">{p.name}</span>
-                  <span className="player-elevation">{p.elevation}m</span>
-                </div>
+                  player={p}
+                  rank={i + 1}
+                  isActive={isPlayerActive(p)}
+                  showKickButton={session.status === "lobby" || !isPlayerActive(p)}
+                />
               ))}
             </div>
           ) : (
@@ -958,5 +978,56 @@ function AddQuestionForm({ sessionId }: { sessionId: Id<"sessions"> }) {
       </button>
       <button type="submit">Add Question</button>
     </form>
+  );
+}
+
+function PlayerCard({
+  player,
+  rank,
+  isActive,
+  showKickButton,
+}: {
+  player: Doc<"players">;
+  rank: number;
+  isActive: boolean;
+  showKickButton: boolean;
+}) {
+  const [isKicking, setIsKicking] = useState(false);
+  const kickPlayer = useMutation(api.players.kick);
+
+  async function handleKick() {
+    if (!confirm(`Kick ${player.name} from this session? This will remove their progress.`)) {
+      return;
+    }
+    setIsKicking(true);
+    try {
+      await kickPlayer({ playerId: player._id });
+    } catch (err) {
+      console.error("Failed to kick player:", err);
+      alert("Failed to kick player");
+    } finally {
+      setIsKicking(false);
+    }
+  }
+
+  const rankClass = rank === 1 ? "rank-1" : rank === 2 ? "rank-2" : rank === 3 ? "rank-3" : "";
+
+  return (
+    <div className={`player-card ${rankClass} ${!isActive ? "inactive" : ""}`}>
+      <span className="player-rank">#{rank}</span>
+      <span className="player-name">{player.name}</span>
+      {!isActive && <span className="inactive-badge">Inactive</span>}
+      <span className="player-elevation">{player.elevation}m</span>
+      {showKickButton && (
+        <button
+          onClick={handleKick}
+          disabled={isKicking}
+          className="kick-btn"
+          title="Kick player from session"
+        >
+          {isKicking ? "..." : "X"}
+        </button>
+      )}
+    </div>
   );
 }

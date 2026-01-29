@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { getRandomQuestions } from "./sampleQuestions";
 
 // Generate a random 4-character join code
 function generateCode(): string {
@@ -10,120 +11,6 @@ function generateCode(): string {
   }
   return code;
 }
-
-// Sample questions for rapid testing
-const SAMPLE_QUESTIONS = [
-  {
-    text: "What should you do if you encounter a bear in the wild?",
-    options: [
-      { text: "Run away as fast as possible" },
-      { text: "Make yourself look big and back away slowly" },
-      { text: "Play dead immediately" },
-      { text: "Try to climb the nearest tree" },
-    ],
-    correctOptionIndex: 1,
-    timeLimit: 20,
-  },
-  {
-    text: "Which director won an Oscar for 'Oppenheimer'?",
-    options: [
-      { text: "Steven Spielberg" },
-      { text: "Christopher Nolan" },
-      { text: "Denis Villeneuve" },
-      { text: "Martin Scorsese" },
-    ],
-    correctOptionIndex: 1,
-    timeLimit: 15,
-  },
-  {
-    text: "What do you call a group of flamingos?",
-    options: [
-      { text: "A flock" },
-      { text: "A colony" },
-      { text: "A flamboyance" },
-      { text: "A squadron" },
-    ],
-    correctOptionIndex: 2,
-    timeLimit: 18,
-  },
-  {
-    text: "Which country has the most Michelin-starred restaurants?",
-    options: [
-      { text: "France" },
-      { text: "Italy" },
-      { text: "Japan" },
-      { text: "Germany" },
-    ],
-    correctOptionIndex: 0,
-    timeLimit: 17,
-  },
-  {
-    text: "What is the smallest country in the world by area?",
-    options: [
-      { text: "Monaco" },
-      { text: "Liechtenstein" },
-      { text: "Vatican City" },
-      { text: "San Marino" },
-    ],
-    correctOptionIndex: 2,
-    timeLimit: 16,
-  },
-  {
-    text: "In what year was the first iPhone released?",
-    options: [
-      { text: "2005" },
-      { text: "2007" },
-      { text: "2009" },
-      { text: "2011" },
-    ],
-    correctOptionIndex: 1,
-    timeLimit: 15,
-  },
-  {
-    text: "What is the only mammal capable of true flight?",
-    options: [
-      { text: "Flying squirrel" },
-      { text: "Bat" },
-      { text: "Flying fish" },
-      { text: "Sugar glider" },
-    ],
-    correctOptionIndex: 1,
-    timeLimit: 16,
-  },
-  {
-    text: "Which famous scientist won the Nobel Prize twice?",
-    options: [
-      { text: "Albert Einstein" },
-      { text: "Marie Curie" },
-      { text: "Isaac Newton" },
-      { text: "Nikola Tesla" },
-    ],
-    correctOptionIndex: 1,
-    timeLimit: 18,
-  },
-  {
-    text: "What is the capital of Australia?",
-    options: [
-      { text: "Sydney" },
-      { text: "Melbourne" },
-      { text: "Canberra" },
-      { text: "Brisbane" },
-    ],
-    correctOptionIndex: 2,
-    timeLimit: 15,
-  },
-  {
-    text: "Which element has the chemical symbol 'Au'?",
-    options: [
-      { text: "Silver" },
-      { text: "Aluminum" },
-      { text: "Gold" },
-      { text: "Argon" },
-    ],
-    correctOptionIndex: 2,
-    timeLimit: 17,
-  },
-];
 
 export const create = mutation({
   args: {
@@ -154,9 +41,10 @@ export const create = mutation({
       createdAt: Date.now(),
     });
 
-    // Add 10 sample questions for rapid testing
-    for (let i = 0; i < SAMPLE_QUESTIONS.length; i++) {
-      const question = SAMPLE_QUESTIONS[i]!;
+    // Add 10 random sample questions from the question bank
+    const sampleQuestions = getRandomQuestions(10);
+    for (let i = 0; i < sampleQuestions.length; i++) {
+      const question = sampleQuestions[i]!;
       await ctx.db.insert("questions", {
         sessionId,
         text: question.text,

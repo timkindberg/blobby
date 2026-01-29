@@ -328,10 +328,36 @@ li.you {
   padding: 16px;
   background: #e0e7ff;
   color: #3730a3;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .options button:hover {
   background: #c7d2fe;
+}
+
+/* Reset focus styles to prevent sticky hover-like appearance on mobile */
+.options button:focus {
+  outline: none;
+}
+
+.options button:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* Ensure active state matches hover for consistent tap feedback */
+.options button:active {
+  background: #c7d2fe;
+}
+
+/* On touch devices, disable hover effect to prevent sticky state after tap */
+@media (hover: none) {
+  .options button:hover {
+    background: #e0e7ff;
+  }
+  .options button:active {
+    background: #c7d2fe;
+  }
 }
 
 .waiting {
@@ -1560,6 +1586,55 @@ button.primary:disabled {
   font-size: 0.875rem;
   color: #64748b;
   font-weight: 500;
+}
+
+/* Inactive player styling */
+.player-card.inactive {
+  opacity: 0.6;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.player-card.inactive .player-name {
+  color: #64748b;
+}
+
+.player-card.inactive .player-rank {
+  color: #94a3b8;
+}
+
+.inactive-badge {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 4px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* Kick button */
+.kick-btn {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  background: transparent;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.kick-btn:hover {
+  background: #fef2f2;
+  border-color: #dc2626;
+}
+
+.kick-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .empty-message {
@@ -3572,10 +3647,205 @@ button.primary:disabled {
   animation: blob-pop-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
-/* Leave session button in waiting lobby */
-.waiting-lobby .leave-btn {
-  background: #ef4444;
-  margin-top: 24px;
+/* Leave session link in waiting lobby - subtle, de-emphasized */
+.leave-link {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  font-size: 0.8rem;
+  padding: 8px 12px;
+  margin-top: 32px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 0.2s;
+}
+
+.leave-link:hover {
+  color: #ef4444;
+  background: transparent;
+}
+
+/* Leave confirmation dialog overlay */
+.leave-confirm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fade-in 0.15s ease-out;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.leave-confirm-dialog {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 300px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  animation: dialog-pop 0.2s ease-out;
+}
+
+@keyframes dialog-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.leave-confirm-dialog p {
+  margin: 0 0 20px 0;
+  font-size: 1rem;
+  color: #374151;
+}
+
+.leave-confirm-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.leave-confirm-cancel {
+  background: #6366f1;
+  color: white;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.leave-confirm-cancel:hover {
+  background: #4f46e5;
+}
+
+.leave-confirm-leave {
+  background: transparent;
+  border: 2px solid #ef4444;
+  color: #ef4444;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.leave-confirm-leave:hover {
+  background: #fef2f2;
+}
+
+/* ============================================
+   REJOIN PANEL - Session restoration UI
+   ============================================ */
+
+.rejoin-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.rejoin-panel h2 {
+  margin: 0 0 8px 0;
+  font-size: 1.5rem;
+  color: #1e293b;
+}
+
+.rejoin-message {
+  margin: 0 0 20px 0;
+  color: #64748b;
+  font-size: 1rem;
+}
+
+.rejoin-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.1));
+  border-radius: 16px;
+  border: 2px solid rgba(99, 102, 241, 0.2);
+  margin-bottom: 20px;
+  min-width: 200px;
+}
+
+.rejoin-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.rejoin-session {
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: #64748b;
+  letter-spacing: 0.1em;
+}
+
+.rejoin-elevation {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #10b981;
+}
+
+.rejoin-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 280px;
+}
+
+.rejoin-btn {
+  padding: 14px 24px;
+  font-size: 1rem;
+  font-weight: 500;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.rejoin-btn.primary {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.rejoin-btn.primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+}
+
+.rejoin-btn.primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.rejoin-btn.secondary {
+  background: transparent;
+  color: #64748b;
+  border: 2px solid #e2e8f0;
+}
+
+.rejoin-btn.secondary:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #475569;
 }
 
 /* ============================================

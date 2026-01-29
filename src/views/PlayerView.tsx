@@ -14,25 +14,26 @@ import { Blob } from "../components/Blob";
 import { generateBlob } from "../lib/blobGenerator";
 import { ErrorMessage } from "../components/ErrorMessage";
 import { getFriendlyErrorMessage } from "../lib/errorMessages";
+import { shuffleOptions } from "../../lib/shuffle";
 
-// sessionStorage helpers for session persistence
-// Using sessionStorage so each tab/window is an independent player
-// sessionStorage survives hot reloads (HMR) but is cleared when the tab closes
+// localStorage helpers for session persistence
+// Using localStorage so players can rejoin after closing the browser/tab
 const STORAGE_KEY = "survyay_player";
 
 interface StoredSession {
   playerId: string;
   sessionId: string;
   sessionCode: string;
+  playerName: string;
 }
 
-function saveSession(playerId: Id<"players">, sessionId: Id<"sessions">, sessionCode: string) {
-  sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ playerId, sessionId, sessionCode }));
+function saveSession(playerId: Id<"players">, sessionId: Id<"sessions">, sessionCode: string, playerName: string) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ playerId, sessionId, sessionCode, playerName }));
 }
 
 function loadSession(): StoredSession | null {
   try {
-    const stored = sessionStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return null;
     return JSON.parse(stored) as StoredSession;
   } catch {
@@ -41,7 +42,7 @@ function loadSession(): StoredSession | null {
 }
 
 function clearSession() {
-  sessionStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(STORAGE_KEY);
 }
 
 /**
@@ -75,6 +76,8 @@ export function PlayerView({ onBack, initialCode }: Props) {
   const [sessionId, setSessionId] = useState<Id<"sessions"> | null>(null);
   const [error, setError] = useState("");
   const [isRestoring, setIsRestoring] = useState(true);
+  const [storedSession, setStoredSession] = useState<StoredSession | null>(null);
+  const [isRejoining, setIsRejoining] = useState(false);
 
   // Sound effects
   const { play } = useSoundManager();
@@ -85,16 +88,40 @@ export function PlayerView({ onBack, initialCode }: Props) {
   // Heartbeat for presence tracking - sends every 5 seconds while tab is open
   usePlayerHeartbeat(playerId);
 
+  // Check stored session validity via Convex
+  const checkStoredSession = useQuery(
+    api.players.checkStoredSession,
+    storedSession
+      ? {
+          playerId: storedSession.playerId as Id<"players">,
+          sessionId: storedSession.sessionId as Id<"sessions">,
+        }
+      : "skip"
+  );
+
+  const reactivatePlayer = useMutation(api.players.reactivate);
+
   // Try to restore session from localStorage on mount
   useEffect(() => {
     const stored = loadSession();
     if (stored) {
-      setPlayerId(stored.playerId as Id<"players">);
-      setSessionId(stored.sessionId as Id<"sessions">);
-      setJoinCode(stored.sessionCode);
+      // Store locally to trigger the checkStoredSession query
+      setStoredSession(stored);
     }
     setIsRestoring(false);
   }, []);
+
+  // Handle the result of checking stored session
+  useEffect(() => {
+    if (storedSession && checkStoredSession !== undefined) {
+      if (checkStoredSession === null) {
+        // Stored session is invalid - clear it
+        clearSession();
+        setStoredSession(null);
+      }
+      // If valid, we keep storedSession to show the rejoin UI
+    }
+  }, [storedSession, checkStoredSession]);
 
   // Auto-focus name input when code is prefilled from URL
   useEffect(() => {
@@ -171,6 +198,13 @@ export function PlayerView({ onBack, initialCode }: Props) {
     }
   }, [isRestoring, playerId, player]);
 
+  // Clear localStorage when session finishes
+  useEffect(() => {
+    if (session?.status === "finished") {
+      clearSession();
+    }
+  }, [session?.status]);
+
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -181,24 +215,59 @@ export function PlayerView({ onBack, initialCode }: Props) {
     }
 
     try {
+      const trimmedName = playerName.trim();
       const id = await joinSession({
         sessionId: getByCode._id,
-        name: playerName.trim(),
+        name: trimmedName,
       });
       setPlayerId(id);
       setSessionId(getByCode._id);
-      saveSession(id, getByCode._id, getByCode.code);
+      setStoredSession(null); // Clear stored session state since we're now joined
+      saveSession(id, getByCode._id, getByCode.code, trimmedName);
     } catch (err) {
       setError(getFriendlyErrorMessage(err));
     }
   }
 
+  async function handleRejoin() {
+    if (!storedSession) return;
+    setIsRejoining(true);
+    setError("");
+
+    try {
+      await reactivatePlayer({
+        playerId: storedSession.playerId as Id<"players">,
+      });
+      setPlayerId(storedSession.playerId as Id<"players">);
+      setSessionId(storedSession.sessionId as Id<"sessions">);
+      setStoredSession(null);
+    } catch (err) {
+      // Session/player no longer valid - clear and show join form
+      clearSession();
+      setStoredSession(null);
+      setError(getFriendlyErrorMessage(err));
+    } finally {
+      setIsRejoining(false);
+    }
+  }
+
+  function handleStartFresh() {
+    clearSession();
+    setStoredSession(null);
+    setJoinCode(initialCode ?? "");
+    setPlayerName("");
+  }
+
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+
   function handleLeave() {
     clearSession();
+    setStoredSession(null);
     setPlayerId(null);
     setSessionId(null);
     setJoinCode("");
     setPlayerName("");
+    setShowLeaveConfirm(false);
   }
 
   // Track answer submission error separately (for toast display during gameplay)
@@ -318,6 +387,19 @@ export function PlayerView({ onBack, initialCode }: Props) {
     [player?.name]
   );
 
+  // Compute shuffled options for deterministic randomization
+  // Uses session code + question index as seed so all views see the same order
+  const shuffledAnswers = useMemo(() => {
+    if (!currentQuestion || !session?.code || session.currentQuestionIndex < 0) {
+      return null;
+    }
+    return shuffleOptions(
+      currentQuestion.options,
+      session.code,
+      session.currentQuestionIndex
+    );
+  }, [currentQuestion, session?.code, session?.currentQuestionIndex]);
+
   // Loading - checking for stored session
   if (isRestoring) {
     return (
@@ -327,8 +409,47 @@ export function PlayerView({ onBack, initialCode }: Props) {
     );
   }
 
-  // Not joined yet - show join form
+  // Not joined yet - show rejoin UI or join form
   if (!playerId || !sessionId) {
+    // Show rejoin UI if we have a valid stored session
+    if (storedSession && checkStoredSession) {
+      return (
+        <div className="player-view">
+          <button onClick={onBack}>- Back</button>
+          <div className="rejoin-panel">
+            <h2>Welcome Back!</h2>
+            <p className="rejoin-message">You have an active game.</p>
+            <div className="rejoin-info">
+              <span className="rejoin-name">{storedSession.playerName}</span>
+              <span className="rejoin-session">Session: {checkStoredSession.session.code}</span>
+              <span className="rejoin-elevation">{checkStoredSession.player.elevation}m</span>
+            </div>
+            <ErrorMessage
+              message={error}
+              onDismiss={() => setError("")}
+              variant="inline"
+            />
+            <div className="rejoin-actions">
+              <button
+                onClick={handleRejoin}
+                disabled={isRejoining}
+                className="rejoin-btn primary"
+              >
+                {isRejoining ? "Rejoining..." : `Rejoin as ${storedSession.playerName}`}
+              </button>
+              <button
+                onClick={handleStartFresh}
+                className="rejoin-btn secondary"
+              >
+                Start Fresh
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Show join form
     return (
       <div className="player-view">
         <button onClick={onBack}>- Back</button>
@@ -429,9 +550,29 @@ export function PlayerView({ onBack, initialCode }: Props) {
             {players?.length ?? 0} player{(players?.length ?? 0) !== 1 ? 's' : ''} joined
           </p>
 
-          <button onClick={handleLeave} className="leave-btn">
-            Leave Session
+          <button
+            onClick={() => setShowLeaveConfirm(true)}
+            className="leave-link"
+          >
+            Leave game
           </button>
+
+          {/* Leave confirmation dialog */}
+          {showLeaveConfirm && (
+            <div className="leave-confirm-overlay" onClick={() => setShowLeaveConfirm(false)}>
+              <div className="leave-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+                <p>Are you sure you want to leave this game?</p>
+                <div className="leave-confirm-actions">
+                  <button onClick={() => setShowLeaveConfirm(false)} className="leave-confirm-cancel">
+                    Stay
+                  </button>
+                  <button onClick={handleLeave} className="leave-confirm-leave">
+                    Leave
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -470,6 +611,7 @@ export function PlayerView({ onBack, initialCode }: Props) {
           width={320}
           height={250}
           ropeClimbingState={ropeClimbingState}
+          answerShuffleOrder={shuffledAnswers?.shuffledOptions.map(o => o.originalIndex)}
         />
       )}
 
@@ -514,12 +656,23 @@ export function PlayerView({ onBack, initialCode }: Props) {
             <p className="waiting">Waiting for host to show answers...</p>
           )}
 
-          {/* Phase: answers_shown - show answer buttons */}
+          {/* Phase: answers_shown - show answer buttons (shuffled order) */}
           {questionPhase === "answers_shown" && (
             hasAnswered ? (
               <p className="waiting">Waiting for results...</p>
             ) : timerExpired ? (
               <p className="waiting time-up">Time's up!</p>
+            ) : shuffledAnswers ? (
+              <div className="options">
+                {shuffledAnswers.shuffledOptions.map((item) => (
+                  <button
+                    key={item.originalIndex}
+                    onClick={() => handleAnswer(item.originalIndex)}
+                  >
+                    {item.option.text}
+                  </button>
+                ))}
+              </div>
             ) : (
               <div className="options">
                 {currentQuestion.options.map((opt, i) => (
@@ -531,15 +684,20 @@ export function PlayerView({ onBack, initialCode }: Props) {
             )
           )}
 
-          {/* Phase: revealed - show answer feedback with all options */}
+          {/* Phase: revealed - show answer feedback with all options (shuffled order) */}
           {questionPhase === "revealed" && ropeClimbingState && (() => {
-            // Find which option the player selected
-            const playerSelectedIndex = ropeClimbingState.ropes.findIndex(
+            // Find which original option index the player selected
+            const playerSelectedOriginalIndex = ropeClimbingState.ropes.findIndex(
               rope => rope.players.some(p => p.playerId === playerId)
             );
-            const correctIndex = ropeClimbingState.ropes.findIndex(r => r.isCorrect === true);
-            const isCorrect = playerSelectedIndex === correctIndex && playerSelectedIndex !== -1;
-            const didAnswer = playerSelectedIndex !== -1;
+            const correctOriginalIndex = ropeClimbingState.ropes.findIndex(r => r.isCorrect === true);
+            const isCorrect = playerSelectedOriginalIndex === correctOriginalIndex && playerSelectedOriginalIndex !== -1;
+            const didAnswer = playerSelectedOriginalIndex !== -1;
+
+            // Use shuffled options for display (same order as when answering)
+            const optionsToDisplay = shuffledAnswers
+              ? shuffledAnswers.shuffledOptions
+              : currentQuestion.options.map((opt, i) => ({ option: opt, originalIndex: i, shuffledIndex: i }));
 
             return (
               <div className="reveal-feedback">
@@ -565,12 +723,13 @@ export function PlayerView({ onBack, initialCode }: Props) {
                   </div>
                 )}
 
-                {/* Show all options with highlighting */}
+                {/* Show all options with highlighting (in shuffled order) */}
                 <div className="options revealed">
-                  {currentQuestion.options.map((opt, i) => {
-                    const rope = ropeClimbingState.ropes[i];
+                  {optionsToDisplay.map((item) => {
+                    const originalIndex = item.originalIndex;
+                    const rope = ropeClimbingState.ropes[originalIndex];
                     const isThisCorrect = rope?.isCorrect === true;
-                    const isPlayerSelection = i === playerSelectedIndex;
+                    const isPlayerSelection = originalIndex === playerSelectedOriginalIndex;
 
                     let className = 'option-revealed';
                     if (isThisCorrect) {
@@ -584,8 +743,8 @@ export function PlayerView({ onBack, initialCode }: Props) {
                     }
 
                     return (
-                      <div key={i} className={className}>
-                        <span className="option-text">{opt.text}</span>
+                      <div key={originalIndex} className={className}>
+                        <span className="option-text">{item.option.text}</span>
                         {isPlayerSelection && <span className="your-pick">Your pick</span>}
                         {isThisCorrect && <span className="correct-label">Correct</span>}
                       </div>

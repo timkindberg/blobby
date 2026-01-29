@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -10,6 +10,7 @@ import { SUMMIT } from "../../lib/elevation";
 import type { RopeClimbingState } from "../../lib/ropeTypes";
 import { useSoundManager } from "../hooks/useSoundManager";
 import { playSound } from "../lib/soundManager";
+import { shuffleOptions } from "../../lib/shuffle";
 
 interface Props {
   sessionCode: string;
@@ -161,6 +162,19 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
   // Track which blobs have already played their appear animation
   // This prevents the appear animation from replaying when blob state changes
   const appearedBlobsRef = useRef<Set<string>>(new Set());
+
+  // Compute shuffled answer order for deterministic randomization
+  // Uses session code + question index as seed so all views see the same order
+  const shuffledAnswers = useMemo(() => {
+    if (!currentQuestion || !session?.code || session.currentQuestionIndex < 0) {
+      return null;
+    }
+    return shuffleOptions(
+      currentQuestion.options,
+      session.code,
+      session.currentQuestionIndex
+    );
+  }, [currentQuestion, session?.code, session?.currentQuestionIndex]);
 
   // Session not found
   if (session === null) {
@@ -397,6 +411,7 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
           height={dimensions.height}
           ropeClimbingState={ropeClimbingState}
           skyQuestion={null}
+          answerShuffleOrder={shuffledAnswers?.shuffledOptions.map(o => o.originalIndex)}
         />
 
         {/* Leaderboard overlay during results phase */}

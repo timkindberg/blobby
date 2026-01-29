@@ -216,3 +216,119 @@ describe("players.disconnect", () => {
     expect(player?.lastSeenAt).toBe(0);
   });
 });
+
+describe("players.kick", () => {
+  test("removes player from session completely", async () => {
+    const t = convexTest(schema, modules);
+
+    const { sessionId } = await t.mutation(api.sessions.create, { hostId: "host-1" });
+    const playerId = await t.mutation(api.players.join, {
+      sessionId,
+      name: "TestPlayer",
+    });
+
+    // Verify player exists
+    const playerBefore = await t.query(api.players.get, { playerId });
+    expect(playerBefore).not.toBeNull();
+
+    // Kick the player
+    await t.mutation(api.players.kick, { playerId });
+
+    // Player should no longer exist
+    const playerAfter = await t.query(api.players.get, { playerId });
+    expect(playerAfter).toBeNull();
+  });
+
+  test("deletes player answers when kicked", async () => {
+    const t = convexTest(schema, modules);
+
+    const { sessionId } = await t.mutation(api.sessions.create, { hostId: "host-1" });
+    const playerId = await t.mutation(api.players.join, {
+      sessionId,
+      name: "TestPlayer",
+    });
+
+    // Create a question and answer it
+    const questionId = await t.mutation(api.questions.create, {
+      sessionId,
+      text: "Test question?",
+      options: [{ text: "A" }, { text: "B" }],
+      correctOptionIndex: 0,
+      timeLimit: 30,
+    });
+
+    // Start session and show answers
+    await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
+    await t.mutation(api.sessions.showAnswers, { sessionId });
+
+    // Submit answer
+    await t.mutation(api.answers.submit, {
+      playerId,
+      questionId,
+      optionIndex: 0,
+    });
+
+    // Verify answer exists
+    const answersBefore = await t.query(api.answers.getByQuestion, { questionId });
+    expect(answersBefore.length).toBe(1);
+
+    // Kick the player
+    await t.mutation(api.players.kick, { playerId });
+
+    // Player's answers should be deleted
+    const answersAfter = await t.query(api.answers.getByQuestion, { questionId });
+    expect(answersAfter.length).toBe(0);
+  });
+
+  test("throws error when trying to kick non-existent player", async () => {
+    const t = convexTest(schema, modules);
+
+    // Create a session just to get a valid session ID format
+    const { sessionId } = await t.mutation(api.sessions.create, { hostId: "host-1" });
+    const playerId = await t.mutation(api.players.join, {
+      sessionId,
+      name: "TestPlayer",
+    });
+
+    // Kick the player first
+    await t.mutation(api.players.kick, { playerId });
+
+    // Try to kick again - should fail
+    await expect(
+      t.mutation(api.players.kick, { playerId })
+    ).rejects.toThrowError("Player not found");
+  });
+
+  test("removes player from leaderboard after kick", async () => {
+    const t = convexTest(schema, modules);
+
+    const { sessionId } = await t.mutation(api.sessions.create, { hostId: "host-1" });
+
+    // Join two players
+    const player1Id = await t.mutation(api.players.join, {
+      sessionId,
+      name: "Player1",
+    });
+    const player2Id = await t.mutation(api.players.join, {
+      sessionId,
+      name: "Player2",
+    });
+
+    // Give them different elevations
+    await t.mutation(api.players.addElevation, { playerId: player1Id, meters: 100 });
+    await t.mutation(api.players.addElevation, { playerId: player2Id, meters: 50 });
+
+    // Verify both are in leaderboard
+    const leaderboardBefore = await t.query(api.players.getLeaderboard, { sessionId });
+    expect(leaderboardBefore.length).toBe(2);
+
+    // Kick player1
+    await t.mutation(api.players.kick, { playerId: player1Id });
+
+    // Leaderboard should only have player2
+    const leaderboardAfter = await t.query(api.players.getLeaderboard, { sessionId });
+    expect(leaderboardAfter.length).toBe(1);
+    expect(leaderboardAfter[0].name).toBe("Player2");
+  });
+});
