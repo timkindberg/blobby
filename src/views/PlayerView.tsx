@@ -18,7 +18,7 @@ import { shuffleOptions, hashString, shuffleWithSeed } from "../../lib/shuffle";
 
 // localStorage helpers for session persistence
 // Using localStorage so players can rejoin after closing the browser/tab
-const STORAGE_KEY = "survyay_player";
+const STORAGE_KEY = "blobby_player";
 
 interface StoredSession {
   playerId: string;

@@ -1,4 +1,4 @@
-// Sample trivia questions for Survyay!
+// Sample trivia questions for Blobby: Summit
 // Each game randomly selects 10 from this pool
 
 export interface SampleQuestion {

@@ -96,15 +96,15 @@ describe("soundManager", () => {
       // so the initial state is already set. We need to reset it.
       localStorageMock.clear();
       // Since module state persists, we test the localStorage behavior
-      expect(localStorageMock.getItem("survyay_muted")).toBeNull();
+      expect(localStorageMock.getItem("blobby_muted")).toBeNull();
     });
 
     it("should persist mute state to localStorage", () => {
       setMuted(true);
-      expect(localStorageMock.getItem("survyay_muted")).toBe("true");
+      expect(localStorageMock.getItem("blobby_muted")).toBe("true");
 
       setMuted(false);
-      expect(localStorageMock.getItem("survyay_muted")).toBe("false");
+      expect(localStorageMock.getItem("blobby_muted")).toBe("false");
     });
 
     it("should toggle mute state", () => {

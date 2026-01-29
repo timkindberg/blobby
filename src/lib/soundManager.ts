@@ -1,5 +1,5 @@
 /**
- * Sound Manager for Surv-Yay!
+ * Sound Manager for Blobby
  *
  * Uses Web Audio API for low-latency sound playback.
  * All sounds are generated procedurally using oscillators and noise.
@@ -25,7 +25,7 @@ export type SoundType =
   | "blobAmbient" // Random ambient sounds for lobby (tiny chirps, boops, hums)
   | "scissorsSafe"; // Relief sound when scissors fade away from correct rope
 
-const MUTE_STORAGE_KEY = "survyay_muted";
+const MUTE_STORAGE_KEY = "blobby_muted";
 
 interface SoundManagerState {
   audioContext: AudioContext | null;

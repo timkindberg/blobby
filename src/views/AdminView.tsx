@@ -357,7 +357,7 @@ interface Props {
 
 // Get or create a persistent hostId from localStorage
 function getHostId(): string {
-  const key = "survyay-host-id";
+  const key = "blobby-host-id";
   let hostId = localStorage.getItem(key);
   if (!hostId) {
     hostId = crypto.randomUUID();

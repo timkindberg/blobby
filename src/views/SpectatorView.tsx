@@ -271,7 +271,7 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
           </div>
         )}
 
-        <h1 className="spectator-title">Surv-Yay!</h1>
+        <h1 className="spectator-title">Blobby: Summit</h1>
         <div className="spectator-join-prompt">
           <p className="join-label">Join with code:</p>
           <div className="join-code">{session.code}</div>

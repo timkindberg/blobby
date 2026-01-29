@@ -1,17 +1,17 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Surv-Yay! Smoke Tests", () => {
+test.describe("Blobby: Summit Smoke Tests", () => {
   test("home page loads with correct elements", async ({ page }) => {
     await page.goto("/");
 
     // Check title
-    await expect(page).toHaveTitle("Surv-Yay!");
+    await expect(page).toHaveTitle("Blobby: Summit");
 
     // Check main heading
-    await expect(page.getByRole("heading", { name: "Surv-Yay!" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Blobby: Summit" })).toBeVisible();
 
     // Check description
-    await expect(page.getByText("A fun real-time survey tool")).toBeVisible();
+    await expect(page.getByText("Race your blob to the mountain top!")).toBeVisible();
 
     // Check all four action buttons are present
     await expect(page.getByRole("button", { name: "Host a Session" })).toBeVisible();
@@ -53,7 +53,7 @@ test.describe("Surv-Yay! Smoke Tests", () => {
 
     // Go back to home
     await page.getByRole("button", { name: /Back/ }).click();
-    await expect(page.getByRole("heading", { name: "Surv-Yay!" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Blobby: Summit" })).toBeVisible();
   });
 
   test("host view shows session creation", async ({ page }) => {
@@ -68,7 +68,7 @@ test.describe("Surv-Yay! Smoke Tests", () => {
 
     // Go back
     await page.getByRole("button", { name: /Back/ }).click();
-    await expect(page.getByRole("heading", { name: "Surv-Yay!" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Blobby: Summit" })).toBeVisible();
   });
 
   test("player view shows join form", async ({ page }) => {
@@ -84,7 +84,7 @@ test.describe("Surv-Yay! Smoke Tests", () => {
 
     // Go back
     await page.getByRole("button", { name: /Back/ }).click();
-    await expect(page.getByRole("heading", { name: "Surv-Yay!" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Blobby: Summit" })).toBeVisible();
   });
 
   test("navigation between views works", async ({ page }) => {
@@ -107,7 +107,7 @@ test.describe("Surv-Yay! Smoke Tests", () => {
     await page.getByRole("button", { name: /Back/ }).click();
 
     // Should be back at home
-    await expect(page.getByRole("heading", { name: "Surv-Yay!" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Blobby: Summit" })).toBeVisible();
   });
 
   test("spectator view shows join form", async ({ page }) => {
@@ -130,7 +130,7 @@ test.describe("Surv-Yay! Smoke Tests", () => {
 
     // Go back
     await page.getByRole("button", { name: /Back/ }).click();
-    await expect(page.getByRole("heading", { name: "Surv-Yay!" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Blobby: Summit" })).toBeVisible();
   });
 
   test("spectator deep link shows session not found for invalid code", async ({ page }) => {
@@ -199,12 +199,12 @@ test.describe("Surv-Yay! Smoke Tests", () => {
 
       // Verify sessionStorage isolation: each tab has its own player data
       const tab1Storage = await page1.evaluate(() => {
-        const stored = sessionStorage.getItem("survyay_player");
+        const stored = sessionStorage.getItem("blobby_player");
         return stored ? JSON.parse(stored) : null;
       });
 
       const tab2Storage = await page2.evaluate(() => {
-        const stored = sessionStorage.getItem("survyay_player");
+        const stored = sessionStorage.getItem("blobby_player");
         return stored ? JSON.parse(stored) : null;
       });
 

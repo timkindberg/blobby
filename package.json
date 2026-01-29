@@ -1,7 +1,7 @@
 {
-  "name": "survyay",
+  "name": "blobby",
   "version": "0.1.0",
-  "description": "A fun real-time survey tool for teams and events",
+  "description": "Blobby: Summit - A fun real-time trivia climbing game for teams and events",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "test:run": "vitest run",
     "test:e2e": "playwright test"
   },
-  "keywords": ["survey", "realtime", "team", "events"],
+  "keywords": ["blobby", "trivia", "party", "game", "realtime", "team", "events"],
   "license": "MIT",
   "devDependencies": {
     "@playwright/test": "^1.58.0",

@@ -1,6 +1,6 @@
-# Surv-Yay!
+# Blobby: Summit
 
-A fun real-time survey/quiz game for teams and events. Players climb a mountain by answering questions correctly - pick the right rope to ascend, pick wrong and watch it get cut!
+A fun real-time trivia climbing game for teams and events. Players are cute blob creatures racing to climb a mountain by answering questions correctly - pick the right rope to ascend, pick wrong and watch it get cut!
 
 ## Tech Stack
 

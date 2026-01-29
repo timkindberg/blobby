@@ -119,8 +119,8 @@ export function App() {
       <div style={{ position: "absolute", top: 20, right: 20 }}>
         <MuteToggle size={40} />
       </div>
-      <h1>Surv-Yay!</h1>
-      <p>A fun real-time survey tool</p>
+      <h1>Blobby: Summit</h1>
+      <p>Race your blob to the mountain top!</p>
       <div className="mode-select">
         <button onClick={() => setMode("admin")}>Host a Session</button>
         <button onClick={() => setMode("player")}>Join as Player</button>
