@@ -48,6 +48,8 @@ Content-Type: application/json
 
 Requirements:
 - Each question must have: text (string), options (array of 4 strings), correctIndex (0-3), timeLimit (optional, defaults to 30 seconds)
+- Question text: Keep concise, ideally under 100 characters for readability
+- Answer options: Keep short, 2-5 words each, under 40 characters
 - Generate all questions at once and send in a single API call
 - Session must be in lobby state (not started yet)`;
 
