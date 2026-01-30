@@ -8,6 +8,7 @@ import { ErrorMessage } from "../components/ErrorMessage";
 import { getFriendlyErrorMessage } from "../lib/errorMessages";
 import { PRESENCE_TIMEOUT_MS } from "../../convex/players";
 import { ConfirmationModal, useConfirmation } from "../components/ConfirmationModal";
+import { AIQuestionModal } from "../components/AIQuestionModal";
 
 // Helper to check if a player is currently active based on heartbeat
 function isPlayerActive(player: { lastSeenAt?: number }): boolean {
@@ -372,6 +373,7 @@ export function AdminView({ onBack }: Props) {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedPlayLink, setCopiedPlayLink] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
+  const [showAIModal, setShowAIModal] = useState(false);
   const confirmation = useConfirmation();
 
   const createSession = useMutation(api.sessions.create);
@@ -720,6 +722,15 @@ export function AdminView({ onBack }: Props) {
         <section className="admin-section questions-section">
           <div className="section-header">
             <h2>Questions ({questions?.length ?? 0})</h2>
+            {session.status === "lobby" && (
+              <button
+                onClick={() => setShowAIModal(true)}
+                className="ai-question-button"
+                title="Have AI generate questions"
+              >
+                🤖 Have AI add questions
+              </button>
+            )}
           </div>
           {session.status === "lobby" && (
             <AddQuestionForm sessionId={sessionId} />
@@ -787,6 +798,13 @@ export function AdminView({ onBack }: Props) {
         confirmText={confirmation.state.confirmText}
         cancelText={confirmation.state.cancelText}
         variant={confirmation.state.variant}
+      />
+      <AIQuestionModal
+        isOpen={showAIModal}
+        onClose={() => setShowAIModal(false)}
+        sessionCode={session.code}
+        hostId={hostId}
+        convexUrl={import.meta.env.VITE_CONVEX_URL as string}
       />
     </div>
   );
