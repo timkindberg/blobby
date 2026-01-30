@@ -2,41 +2,82 @@
  * Elevation calculation utilities for the mountain climb game.
  *
  * Players gain elevation by answering questions correctly.
- * Faster answers = more elevation gain.
+ * Scoring has two components:
+ * 1. Base score from answer speed (linear 0-10s)
+ * 2. Minority bonus for choosing less popular answers
  */
 
 // Elevation constants
-export const ELEVATION_MAX = 100; // Max gain for fast answers
-export const ELEVATION_MIN = 50; // Floor for slow answers
-export const GRACE_PERIOD = 2; // Seconds where everyone gets max
-export const RAMP_END = 15; // Seconds where floor kicks in
 export const SUMMIT = 1000; // Max elevation (game ends)
 
 /**
- * Calculate elevation gain based on answer speed.
+ * Calculate base elevation score based on answer speed.
+ * Linear formula: 100 - (responseTimeSeconds * 10)
  *
- * 0-2s:   100m (grace period for network latency)
- * 2-15s:  Linear ramp from 100m → 50m
- * 15s+:   50m floor (slow but still progressing)
+ * 0.0s:   100m
+ * 1.0s:   90m
+ * 5.0s:   50m
+ * 10s+:   0m
  *
  * @param answerTimeMs - Time to answer in milliseconds
- * @returns Elevation gain in meters (50-100)
+ * @returns Base elevation score in meters (0-100)
  */
-export function calculateElevationGain(answerTimeMs: number): number {
-  const seconds = answerTimeMs / 1000;
+export function calculateBaseScore(answerTimeMs: number): number {
+  const seconds = Math.max(0, answerTimeMs / 1000); // Handle negative times
+  const baseScore = Math.max(0, 100 - seconds * 10);
+  return Math.round(baseScore);
+}
 
-  // Grace period - fast answers all get max
-  if (seconds <= GRACE_PERIOD) return ELEVATION_MAX;
+/**
+ * Calculate minority bonus based on answer distribution.
+ * Players who chose less popular answers get a bonus.
+ *
+ * aloneRatio = 1 - (playersOnMyLadder / totalAnswered)
+ * minorityBonus = aloneRatio * 50
+ *
+ * Examples:
+ * - 1 player chose this, 10 total: aloneRatio = 0.9, bonus = 45m
+ * - 5 players chose this, 10 total: aloneRatio = 0.5, bonus = 25m
+ * - 10 players chose this, 10 total: aloneRatio = 0.0, bonus = 0m
+ *
+ * @param playersOnMyLadder - Number of players who chose the same answer
+ * @param totalAnswered - Total number of players who answered
+ * @returns Minority bonus in meters (0-50)
+ */
+export function calculateMinorityBonus(
+  playersOnMyLadder: number,
+  totalAnswered: number
+): number {
+  if (totalAnswered === 0) return 0;
+  const aloneRatio = 1 - playersOnMyLadder / totalAnswered;
+  const minorityBonus = aloneRatio * 50;
+  return Math.round(minorityBonus);
+}
 
-  // Floor - slow answers still get something
-  if (seconds >= RAMP_END) return ELEVATION_MIN;
-
-  // Linear ramp between grace period and floor
-  const rampDuration = RAMP_END - GRACE_PERIOD;
-  const elevationRange = ELEVATION_MAX - ELEVATION_MIN;
-  const timeIntoRamp = seconds - GRACE_PERIOD;
-
-  return Math.round(ELEVATION_MAX - (timeIntoRamp / rampDuration) * elevationRange);
+/**
+ * Calculate total elevation gain combining base score and minority bonus.
+ *
+ * @param answerTimeMs - Time to answer in milliseconds
+ * @param playersOnMyLadder - Number of players who chose the same answer
+ * @param totalAnswered - Total number of players who answered
+ * @returns Object with baseScore, minorityBonus, and total elevation gain
+ */
+export function calculateElevationGain(
+  answerTimeMs: number,
+  playersOnMyLadder: number,
+  totalAnswered: number
+): {
+  baseScore: number;
+  minorityBonus: number;
+  total: number;
+} {
+  const baseScore = calculateBaseScore(answerTimeMs);
+  const minorityBonus = calculateMinorityBonus(playersOnMyLadder, totalAnswered);
+  return {
+    baseScore,
+    minorityBonus,
+    total: baseScore + minorityBonus,
+  };
 }
 
 /**

@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { calculateElevationGain, SUMMIT } from "../lib/elevation";
 import { PRESENCE_TIMEOUT_MS } from "./players";
+import type { Id } from "./_generated/dataModel";
 
 export const submit = mutation({
   args: {
@@ -78,42 +79,10 @@ export const submit = mutation({
       elevationAtAnswer: currentElevation,
     });
 
-    // Calculate elevation if there's a correct answer
-    if (question.correctOptionIndex !== undefined) {
-      if (args.optionIndex === question.correctOptionIndex) {
-        const elevationGain = calculateElevationGain(answerTime);
-        const newElevation = Math.min(SUMMIT, currentElevation + elevationGain);
-
-        await ctx.db.patch(args.playerId, {
-          elevation: newElevation,
-        });
-
-        return {
-          correct: true,
-          elevationGain,
-          newElevation,
-          reachedSummit: newElevation >= SUMMIT,
-        };
-      }
-      // Wrong answer - no elevation gain, stay at current level
-      return {
-        correct: false,
-        elevationGain: 0,
-        newElevation: currentElevation,
-        reachedSummit: false,
-      };
-    }
-
-    // For poll mode (no correct answer), small elevation for participation
-    const newElevation = Math.min(SUMMIT, currentElevation + 10);
-    await ctx.db.patch(args.playerId, {
-      elevation: newElevation,
-    });
+    // NOTE: Elevation is now calculated during reveal phase to include minority bonus
+    // Just acknowledge the answer was received
     return {
-      correct: null,
-      elevationGain: 10,
-      newElevation,
-      reachedSummit: newElevation >= SUMMIT,
+      submitted: true,
     };
   },
 });

@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { getRandomQuestions } from "./sampleQuestions";
+import { calculateElevationGain, SUMMIT } from "../lib/elevation";
 
 // Generate a random 4-character join code
 function generateCode(): string {
@@ -217,6 +218,7 @@ export const showAnswers = mutation({
 });
 
 // Transition to revealed phase (manual host trigger to show correct answer)
+// This is when we calculate final scores including minority bonus
 export const revealAnswer = mutation({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, args) => {
@@ -225,6 +227,80 @@ export const revealAnswer = mutation({
     if (session.status !== "active") throw new Error("Session not active");
     if (session.questionPhase !== "answers_shown") {
       throw new Error("Can only reveal from answers_shown phase");
+    }
+
+    // Get the current question
+    const questions = await ctx.db
+      .query("questions")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .collect();
+
+    const enabledQuestions = questions
+      .filter((q) => q.enabled !== false)
+      .sort((a, b) => a.order - b.order);
+
+    const question = enabledQuestions[session.currentQuestionIndex];
+    if (!question) throw new Error("Current question not found");
+
+    // Get all answers for this question
+    const answers = await ctx.db
+      .query("answers")
+      .withIndex("by_question", (q) => q.eq("questionId", question._id))
+      .collect();
+
+    // Calculate answer distribution for minority bonus
+    const totalAnswered = answers.length;
+    const answerCounts = new Map<number, number>();
+
+    for (const answer of answers) {
+      const count = answerCounts.get(answer.optionIndex) ?? 0;
+      answerCounts.set(answer.optionIndex, count + 1);
+    }
+
+    // Find the first answer timestamp for calculating response times
+    const firstAnsweredAt = answers.length > 0
+      ? Math.min(...answers.map((a) => a.answeredAt))
+      : 0;
+
+    // Calculate scores and update player elevations
+    for (const answer of answers) {
+      const player = await ctx.db.get(answer.playerId);
+      if (!player) continue;
+
+      const isCorrect = question.correctOptionIndex !== undefined
+        ? answer.optionIndex === question.correctOptionIndex
+        : true; // Poll mode - all answers are "correct"
+
+      if (isCorrect) {
+        // Calculate response time from first answer
+        const answerTime = answer.answeredAt - firstAnsweredAt;
+        const playersOnMyLadder = answerCounts.get(answer.optionIndex) ?? 1;
+
+        // Calculate scoring components
+        const scoring = calculateElevationGain(answerTime, playersOnMyLadder, totalAnswered);
+
+        // Update the answer record with scoring details
+        await ctx.db.patch(answer._id, {
+          baseScore: scoring.baseScore,
+          minorityBonus: scoring.minorityBonus,
+          elevationGain: scoring.total,
+        });
+
+        // Update player elevation
+        const currentElevation = answer.elevationAtAnswer;
+        const newElevation = Math.min(SUMMIT, currentElevation + scoring.total);
+
+        await ctx.db.patch(answer.playerId, {
+          elevation: newElevation,
+        });
+      } else {
+        // Wrong answer - no elevation gain
+        await ctx.db.patch(answer._id, {
+          baseScore: 0,
+          minorityBonus: 0,
+          elevationGain: 0,
+        });
+      }
     }
 
     await ctx.db.patch(args.sessionId, {

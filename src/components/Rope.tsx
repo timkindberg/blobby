@@ -547,6 +547,7 @@ export const RopeClimber = memo(function RopeClimber({
   const customProperties: React.CSSProperties = {
     "--fall-distance": `${fallDistance}px`,
     "--climb-distance": `${-climbDistance}px`,
+    "--climb-offset": `${climbOffset}px`,
   } as React.CSSProperties;
 
   // Highlight circle size is slightly larger than the blob
@@ -558,7 +559,7 @@ export const RopeClimber = memo(function RopeClimber({
       style={{
         position: "absolute",
         left: x - size / 2,
-        top: y - size / 2 + climbOffset,
+        top: y - size / 2,
         zIndex: isCurrentPlayer ? 100 : revealState === "celebrating" ? 50 : 10,
         filter: getFilter(),
         pointerEvents: "none",

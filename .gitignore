@@ -8,6 +8,7 @@ dist/
 .env
 .env.local
 .env.*.local
+.env.vercel.preview
 
 # Logs
 *.log
@@ -36,3 +37,5 @@ test-results/
 .playwright-mcp/
 .playwright-mcp/test-results/
 playwright-report/
+.vercel
+.env*.local

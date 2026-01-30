@@ -1019,8 +1019,9 @@ const RopeClimbersGroup = memo(function RopeClimbersGroup({
         const xOffset = (playerIndex % 2 === 0 ? -1 : 1) * (playerIndex > 0 ? 8 : 0);
 
         // Calculate fall distance (from current climb position back to their original elevation)
-        // The climb offset puts them higher, so they need to fall back that distance
-        const fallDistance = Math.abs(climbOffset) + 30 + playerIndex * 10; // Add some extra for dramatic effect
+        // The climb offset is negative (e.g., -60px), so we need to negate it to fall back down
+        // No extra distance needed - just return to the starting elevation
+        const fallDistance = -climbOffset;
 
         // Calculate climb distance for correct answers (elevation gain visual)
         const climbDistance = isCorrect === true ? 40 + playerIndex * 5 : 0;

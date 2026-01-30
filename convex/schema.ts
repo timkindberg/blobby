@@ -48,6 +48,10 @@ export default defineSchema({
     optionIndex: v.number(),
     answeredAt: v.number(), // Timestamp for speed bonus
     elevationAtAnswer: v.number(), // Player's elevation when they grabbed the rope
+    // Scoring components (calculated on reveal)
+    baseScore: v.optional(v.number()), // Base score from answer speed (0-100m)
+    minorityBonus: v.optional(v.number()), // Minority bonus (0-50m)
+    elevationGain: v.optional(v.number()), // Total elevation gain (baseScore + minorityBonus)
   })
     .index("by_question", ["questionId"])
     .index("by_player", ["playerId"])
