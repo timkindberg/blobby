@@ -210,3 +210,88 @@ export const setEnabled = mutation({
     await ctx.db.patch(args.questionId, { enabled: args.enabled });
   },
 });
+
+// Export questions in JSON format (same as AI injection API)
+export const exportQuestions = query({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    const questions = await ctx.db
+      .query("questions")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .collect();
+
+    const sorted = questions.sort((a, b) => a.order - b.order);
+
+    return {
+      questions: sorted.map((q) => ({
+        text: q.text,
+        options: q.options.map((o) => o.text),
+        correctIndex: q.correctOptionIndex ?? 0,
+        timeLimit: q.timeLimit,
+      })),
+    };
+  },
+});
+
+// Import questions from JSON (replaces existing questions)
+export const importQuestions = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    questions: v.array(
+      v.object({
+        text: v.string(),
+        options: v.array(v.string()),
+        correctIndex: v.number(),
+        timeLimit: v.optional(v.number()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) throw new Error("Session not found");
+    if (session.status !== "lobby") throw new Error("Can only import questions in lobby state");
+
+    // Validate questions
+    if (args.questions.length === 0) {
+      throw new Error("Questions array cannot be empty");
+    }
+
+    for (let i = 0; i < args.questions.length; i++) {
+      const q = args.questions[i];
+      if (!q) throw new Error(`Question ${i + 1} is invalid`);
+      if (!q.text || typeof q.text !== "string") {
+        throw new Error(`Question ${i + 1}: text is required and must be a string`);
+      }
+      if (!Array.isArray(q.options) || q.options.length < 2) {
+        throw new Error(`Question ${i + 1}: options must be an array with at least 2 items`);
+      }
+      if (typeof q.correctIndex !== "number" || q.correctIndex < 0 || q.correctIndex >= q.options.length) {
+        throw new Error(`Question ${i + 1}: correctIndex must be a valid option index (0-${q.options.length - 1})`);
+      }
+    }
+
+    // Delete all existing questions first
+    const existingQuestions = await ctx.db
+      .query("questions")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .collect();
+
+    for (const q of existingQuestions) {
+      await ctx.db.delete(q._id);
+    }
+
+    // Insert new questions
+    for (const q of args.questions) {
+      await ctx.db.insert("questions", {
+        sessionId: args.sessionId,
+        text: q.text,
+        options: q.options.map((text) => ({ text })),
+        correctOptionIndex: q.correctIndex,
+        order: args.questions.indexOf(q),
+        timeLimit: q.timeLimit ?? 30,
+      });
+    }
+
+    return { success: true, count: args.questions.length };
+  },
+});

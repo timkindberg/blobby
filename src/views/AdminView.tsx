@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id, Doc } from "../../convex/_generated/dataModel";
@@ -354,6 +354,8 @@ function HostActionButton({
 
 interface Props {
   onBack: () => void;
+  initialCode?: string | null;
+  initialToken?: string | null;
 }
 
 // Get or create a persistent hostId from localStorage
@@ -367,20 +369,36 @@ function getHostId(): string {
   return hostId;
 }
 
-export function AdminView({ onBack }: Props) {
+export function AdminView({ onBack, initialCode, initialToken }: Props) {
   const [sessionId, setSessionId] = useState<Id<"sessions"> | null>(null);
   const [hostId] = useState(getHostId);
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedPlayLink, setCopiedPlayLink] = useState(false);
+  const [copiedHostLink, setCopiedHostLink] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
   const [showAIModal, setShowAIModal] = useState(false);
   const confirmation = useConfirmation();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const createSession = useMutation(api.sessions.create);
   const deleteSession = useMutation(api.sessions.remove);
   const backToLobby = useMutation(api.sessions.backToLobby);
+  const exportQuestionsQuery = useQuery(
+    api.questions.exportQuestions,
+    sessionId ? { sessionId } : "skip"
+  );
+  const importQuestionsMutation = useMutation(api.questions.importQuestions);
 
   const existingSessions = useQuery(api.sessions.listByHost, { hostId });
+
+  // Validate session from shareable host link if provided
+  const sessionFromLink = useQuery(
+    api.sessions.getByCodeAndToken,
+    initialCode && initialToken
+      ? { code: initialCode, secretToken: initialToken }
+      : "skip"
+  );
+
   const session = useQuery(
     api.sessions.get,
     sessionId ? { sessionId } : "skip"
@@ -414,6 +432,16 @@ export function AdminView({ onBack }: Props) {
   const showAnswers = useMutation(api.sessions.showAnswers);
   const revealAnswer = useMutation(api.sessions.revealAnswer);
   const showResults = useMutation(api.sessions.showResults);
+
+  // Auto-join session from shareable host link
+  useEffect(() => {
+    if (sessionFromLink && !sessionId) {
+      setSessionId(sessionFromLink._id);
+    } else if (sessionFromLink === null && initialCode && initialToken) {
+      // Invalid link
+      setAdminError("Invalid host link. The session may have been deleted.");
+    }
+  }, [sessionFromLink, sessionId, initialCode, initialToken]);
 
   async function handleCreate() {
     try {
@@ -491,6 +519,72 @@ export function AdminView({ onBack }: Props) {
       setTimeout(() => setCopiedPlayLink(false), 2000);
     } catch {
       console.error("Failed to copy play link");
+    }
+  }
+
+  async function copyHostLink() {
+    if (!session || !session.secretToken) return;
+    try {
+      const hostLink = `${window.location.origin}/host/${session.code}/${session.secretToken}`;
+      await navigator.clipboard.writeText(hostLink);
+      setCopiedHostLink(true);
+      setTimeout(() => setCopiedHostLink(false), 2000);
+    } catch {
+      console.error("Failed to copy host link");
+    }
+  }
+
+  function handleExportQuestions() {
+    if (!session || !exportQuestionsQuery) return;
+
+    try {
+      const jsonString = JSON.stringify(exportQuestionsQuery, null, 2);
+      const blob = new Blob([jsonString], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
+      link.download = `questions-${session.code}-${timestamp}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setAdminError(null);
+    } catch (err) {
+      setAdminError(getFriendlyErrorMessage(err));
+    }
+  }
+
+  async function handleImportQuestions(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!sessionId) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text) as { questions: Array<{ text: string; options: string[]; correctIndex: number; timeLimit?: number }> };
+
+      // Validate format
+      if (!data.questions || !Array.isArray(data.questions)) {
+        throw new Error("Invalid file format: missing 'questions' array");
+      }
+
+      // Import questions
+      await importQuestionsMutation({
+        sessionId,
+        questions: data.questions,
+      });
+
+      setAdminError(null);
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        setAdminError("Invalid JSON file");
+      } else {
+        setAdminError(getFriendlyErrorMessage(err));
+      }
+    } finally {
+      // Reset file input so the same file can be imported again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   }
 
@@ -595,6 +689,13 @@ export function AdminView({ onBack }: Props) {
               title="Copy shareable play link"
             >
               {copiedPlayLink ? "Copied!" : "Copy Link"}
+            </button>
+            <button
+              onClick={copyHostLink}
+              className={`host-link-button ${copiedHostLink ? "copied" : ""}`}
+              title="Copy shareable host link"
+            >
+              {copiedHostLink ? "✓ Copied!" : "📋 Copy Host Link"}
             </button>
             <span className={`status-badge status-${session.status}`}>{session.status}</span>
           </div>
@@ -722,15 +823,42 @@ export function AdminView({ onBack }: Props) {
         <section className="admin-section questions-section">
           <div className="section-header">
             <h2>Questions ({questions?.length ?? 0})</h2>
-            {session.status === "lobby" && (
-              <button
-                onClick={() => setShowAIModal(true)}
-                className="ai-question-button"
-                title="Have AI generate questions"
-              >
-                🤖 Have AI add questions
-              </button>
-            )}
+            <div className="question-actions-toolbar">
+              {questions && questions.length > 0 && (
+                <button
+                  onClick={handleExportQuestions}
+                  className="export-button"
+                  title="Download questions as JSON file"
+                >
+                  📥 Export Questions
+                </button>
+              )}
+              {session.status === "lobby" && (
+                <>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="import-button"
+                    title="Import questions from JSON file"
+                  >
+                    📤 Import Questions
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json"
+                    style={{ display: "none" }}
+                    onChange={handleImportQuestions}
+                  />
+                  <button
+                    onClick={() => setShowAIModal(true)}
+                    className="ai-question-button"
+                    title="Have AI generate questions"
+                  >
+                    🤖 Have AI add questions
+                  </button>
+                </>
+              )}
+            </div>
           </div>
           {session.status === "lobby" && (
             <AddQuestionForm sessionId={sessionId} />

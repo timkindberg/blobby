@@ -6,6 +6,7 @@ export default defineSchema({
   sessions: defineTable({
     code: v.string(), // Join code like "ABCD"
     hostId: v.string(), // Anonymous host identifier
+    secretToken: v.optional(v.string()), // Secret token for shareable host links
     status: v.union(v.literal("lobby"), v.literal("active"), v.literal("finished")),
     currentQuestionIndex: v.number(), // -1 means no question shown yet
     questionStartedAt: v.optional(v.number()), // When current question was shown (for speed calc)

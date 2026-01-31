@@ -8,8 +8,24 @@ import { MuteToggle } from "./components/MuteToggle";
 type Mode = "select" | "admin" | "player" | "spectator" | "spectator-join" | "blobs";
 
 // Check URL for routes
-function getInitialMode(): { mode: Mode; spectatorCode?: string; playCode?: string } {
+function getInitialMode(): {
+  mode: Mode;
+  spectatorCode?: string;
+  playCode?: string;
+  hostCode?: string;
+  hostToken?: string;
+} {
   const path = window.location.pathname;
+
+  // /host/:code/:token - Host view with shareable link
+  const hostMatch = path.match(/^\/host\/([A-Za-z]{4})\/([a-f0-9-]{36})$/i);
+  if (hostMatch) {
+    return {
+      mode: "admin",
+      hostCode: hostMatch[1]!.toUpperCase(),
+      hostToken: hostMatch[2]!,
+    };
+  }
 
   // /spectate/:code - Spectator view
   const spectateMatch = path.match(/^\/spectate\/([A-Za-z]{4})$/);
@@ -48,6 +64,8 @@ export function App() {
   const [mode, setMode] = useState<Mode>(initialState.mode);
   const [spectatorCode, setSpectatorCode] = useState<string | null>(initialState.spectatorCode ?? null);
   const [playCode, setPlayCode] = useState<string | null>(initialState.playCode ?? null);
+  const [hostCode, setHostCode] = useState<string | null>(initialState.hostCode ?? null);
+  const [hostToken, setHostToken] = useState<string | null>(initialState.hostToken ?? null);
 
   // Update URL when mode changes (but not on initial render)
   const [isInitialRender, setIsInitialRender] = useState(true);
@@ -73,7 +91,7 @@ export function App() {
   }
 
   if (mode === "admin") {
-    return <AdminView onBack={goHome} />;
+    return <AdminView onBack={goHome} initialCode={hostCode} initialToken={hostToken} />;
   }
 
   if (mode === "player") {

@@ -34,9 +34,13 @@ export const create = mutation({
         .first();
     }
 
+    // Generate secret token for shareable host link
+    const secretToken = crypto.randomUUID();
+
     const sessionId = await ctx.db.insert("sessions", {
       code,
       hostId: args.hostId,
+      secretToken,
       status: "lobby",
       currentQuestionIndex: -1,
       createdAt: Date.now(),
@@ -56,7 +60,7 @@ export const create = mutation({
       });
     }
 
-    return { sessionId, code };
+    return { sessionId, code, secretToken };
   },
 });
 
@@ -67,6 +71,26 @@ export const getByCode = query({
       .query("sessions")
       .withIndex("by_code", (q) => q.eq("code", args.code.toUpperCase()))
       .first();
+  },
+});
+
+export const getByCodeAndToken = query({
+  args: {
+    code: v.string(),
+    secretToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_code", (q) => q.eq("code", args.code.toUpperCase()))
+      .first();
+
+    if (!session) return null;
+
+    // Validate secret token matches
+    if (session.secretToken !== args.secretToken) return null;
+
+    return session;
   },
 });
 

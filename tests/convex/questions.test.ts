@@ -449,3 +449,285 @@ describe("sessions.start with disabled questions", () => {
     expect(session!.questionPhase).toBe("pre_game");
   });
 });
+
+describe("questions export and import", () => {
+  test("exports questions in correct format", async () => {
+    const t = convexTest(schema, modules);
+
+    const { sessionId } = await t.mutation(api.sessions.create, {
+      hostId: "test-host",
+    });
+
+    // Delete sample questions
+    await deleteSampleQuestions(t, sessionId);
+
+    // Create test questions
+    await t.mutation(api.questions.create, {
+      sessionId,
+      text: "First question?",
+      options: [{ text: "Option A" }, { text: "Option B" }, { text: "Option C" }],
+      correctOptionIndex: 1,
+      timeLimit: 45,
+    });
+
+    await t.mutation(api.questions.create, {
+      sessionId,
+      text: "Second question?",
+      options: [{ text: "Yes" }, { text: "No" }],
+      correctOptionIndex: 0,
+      timeLimit: 30,
+    });
+
+    // Export questions
+    const exported = await t.query(api.questions.exportQuestions, { sessionId });
+
+    expect(exported.questions).toHaveLength(2);
+    expect(exported.questions[0]).toEqual({
+      text: "First question?",
+      options: ["Option A", "Option B", "Option C"],
+      correctIndex: 1,
+      timeLimit: 45,
+    });
+    expect(exported.questions[1]).toEqual({
+      text: "Second question?",
+      options: ["Yes", "No"],
+      correctIndex: 0,
+      timeLimit: 30,
+    });
+  });
+
+  test("imports questions successfully", async () => {
+    const t = convexTest(schema, modules);
+
+    const { sessionId } = await t.mutation(api.sessions.create, {
+      hostId: "test-host",
+    });
+
+    // Delete sample questions
+    await deleteSampleQuestions(t, sessionId);
+
+    // Import questions
+    const result = await t.mutation(api.questions.importQuestions, {
+      sessionId,
+      questions: [
+        {
+          text: "Imported Q1",
+          options: ["A", "B"],
+          correctIndex: 0,
+          timeLimit: 20,
+        },
+        {
+          text: "Imported Q2",
+          options: ["Yes", "No", "Maybe"],
+          correctIndex: 2,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.count).toBe(2);
+
+    // Verify questions were created
+    const questions = await t.query(api.questions.listBySession, { sessionId });
+    expect(questions).toHaveLength(2);
+    expect(questions[0]?.text).toBe("Imported Q1");
+    expect(questions[0]?.options).toEqual([{ text: "A" }, { text: "B" }]);
+    expect(questions[0]?.correctOptionIndex).toBe(0);
+    expect(questions[0]?.timeLimit).toBe(20);
+    expect(questions[1]?.text).toBe("Imported Q2");
+    expect(questions[1]?.timeLimit).toBe(30); // Default
+  });
+
+  test("import replaces existing questions", async () => {
+    const t = convexTest(schema, modules);
+
+    const { sessionId } = await t.mutation(api.sessions.create, {
+      hostId: "test-host",
+    });
+
+    // Delete sample questions
+    await deleteSampleQuestions(t, sessionId);
+
+    // Create initial questions
+    await t.mutation(api.questions.create, {
+      sessionId,
+      text: "Original Q1",
+      options: [{ text: "A" }, { text: "B" }],
+      correctOptionIndex: 0,
+      timeLimit: 30,
+    });
+
+    await t.mutation(api.questions.create, {
+      sessionId,
+      text: "Original Q2",
+      options: [{ text: "A" }, { text: "B" }],
+      correctOptionIndex: 0,
+      timeLimit: 30,
+    });
+
+    // Verify we have 2 questions
+    let questions = await t.query(api.questions.listBySession, { sessionId });
+    expect(questions).toHaveLength(2);
+
+    // Import new questions (should replace)
+    await t.mutation(api.questions.importQuestions, {
+      sessionId,
+      questions: [
+        {
+          text: "Imported Q1",
+          options: ["X", "Y", "Z"],
+          correctIndex: 1,
+          timeLimit: 40,
+        },
+      ],
+    });
+
+    // Verify only 1 question now
+    questions = await t.query(api.questions.listBySession, { sessionId });
+    expect(questions).toHaveLength(1);
+    expect(questions[0]?.text).toBe("Imported Q1");
+  });
+
+  test("import fails when session is not in lobby", async () => {
+    const t = convexTest(schema, modules);
+
+    const { sessionId } = await t.mutation(api.sessions.create, {
+      hostId: "test-host",
+    });
+
+    // Delete sample questions and add one
+    await deleteSampleQuestions(t, sessionId);
+    await t.mutation(api.questions.create, {
+      sessionId,
+      text: "Question",
+      options: [{ text: "A" }, { text: "B" }],
+      correctOptionIndex: 0,
+      timeLimit: 30,
+    });
+
+    // Start the session
+    await t.mutation(api.sessions.start, { sessionId });
+
+    // Try to import - should fail
+    await expect(
+      t.mutation(api.questions.importQuestions, {
+        sessionId,
+        questions: [
+          {
+            text: "New Q",
+            options: ["A", "B"],
+            correctIndex: 0,
+          },
+        ],
+      })
+    ).rejects.toThrowError("Can only import questions in lobby state");
+  });
+
+  test("import validates question format", async () => {
+    const t = convexTest(schema, modules);
+
+    const { sessionId } = await t.mutation(api.sessions.create, {
+      hostId: "test-host",
+    });
+
+    // Empty questions array
+    await expect(
+      t.mutation(api.questions.importQuestions, {
+        sessionId,
+        questions: [],
+      })
+    ).rejects.toThrowError("Questions array cannot be empty");
+
+    // Invalid correctIndex
+    await expect(
+      t.mutation(api.questions.importQuestions, {
+        sessionId,
+        questions: [
+          {
+            text: "Q1",
+            options: ["A", "B"],
+            correctIndex: 5, // Out of bounds
+          },
+        ],
+      })
+    ).rejects.toThrowError("correctIndex must be a valid option index");
+
+    // Too few options
+    await expect(
+      t.mutation(api.questions.importQuestions, {
+        sessionId,
+        questions: [
+          {
+            text: "Q1",
+            options: ["A"], // Only 1 option
+            correctIndex: 0,
+          },
+        ],
+      })
+    ).rejects.toThrowError("options must be an array with at least 2 items");
+  });
+
+  test("export and import round-trip preserves questions", async () => {
+    const t = convexTest(schema, modules);
+
+    const { sessionId } = await t.mutation(api.sessions.create, {
+      hostId: "test-host",
+    });
+
+    // Delete sample questions
+    await deleteSampleQuestions(t, sessionId);
+
+    // Create test questions
+    const originalQuestions = [
+      {
+        text: "Question 1",
+        options: ["A", "B", "C"],
+        correctIndex: 0,
+        timeLimit: 25,
+      },
+      {
+        text: "Question 2",
+        options: ["Yes", "No"],
+        correctIndex: 1,
+        timeLimit: 50,
+      },
+    ];
+
+    for (const q of originalQuestions) {
+      await t.mutation(api.questions.create, {
+        sessionId,
+        text: q.text,
+        options: q.options.map((text) => ({ text })),
+        correctOptionIndex: q.correctIndex,
+        timeLimit: q.timeLimit,
+      });
+    }
+
+    // Export
+    const exported = await t.query(api.questions.exportQuestions, { sessionId });
+
+    // Create new session
+    const { sessionId: newSessionId } = await t.mutation(api.sessions.create, {
+      hostId: "test-host",
+    });
+    await deleteSampleQuestions(t, newSessionId);
+
+    // Import to new session
+    await t.mutation(api.questions.importQuestions, {
+      sessionId: newSessionId,
+      questions: exported.questions,
+    });
+
+    // Verify round-trip
+    const imported = await t.query(api.questions.listBySession, { sessionId: newSessionId });
+    expect(imported).toHaveLength(2);
+    expect(imported[0]?.text).toBe("Question 1");
+    expect(imported[0]?.options).toEqual([{ text: "A" }, { text: "B" }, { text: "C" }]);
+    expect(imported[0]?.correctOptionIndex).toBe(0);
+    expect(imported[0]?.timeLimit).toBe(25);
+    expect(imported[1]?.text).toBe("Question 2");
+    expect(imported[1]?.options).toEqual([{ text: "Yes" }, { text: "No" }]);
+    expect(imported[1]?.correctOptionIndex).toBe(1);
+    expect(imported[1]?.timeLimit).toBe(50);
+  });
+});
