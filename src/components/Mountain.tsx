@@ -868,9 +868,11 @@ function RopesOverlay({
         const y = elevationToY(player.elevation);
         // Position based on last answer's column, or spread out if no previous answer
         let x: number;
-        if (player.lastOptionIndex !== null && player.lastOptionIndex >= 0 && player.lastOptionIndex < ropeXPositions.length) {
-          // Player has a previous answer - position at that rope's X coordinate
-          x = ropeXPositions[player.lastOptionIndex] ?? width / 2;
+        if (player.lastOptionIndex !== null && player.lastOptionIndex >= 0) {
+          // Player has a previous answer - use lastOptionIndex as a visual position hint
+          // (mod by ropeCount to handle different numbers of options between questions)
+          const visualPosition = player.lastOptionIndex % ropeCount;
+          x = getXForVisualPosition(visualPosition);
         } else {
           // New player with no previous answer - spread evenly across available space
           // Position them between the ropes, using index for distribution

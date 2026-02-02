@@ -243,6 +243,9 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
         <div className="spectator-session-code">
           Session: {session.code}
         </div>
+        <button onClick={onBack} className="back-to-home-button">
+          Back to Home
+        </button>
       </div>
     );
   }
@@ -436,6 +439,17 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
               players={leaderboard}
               maxDisplay={10}
             />
+          </div>
+        )}
+
+        {/* Follow-up text overlay during revealed phase */}
+        {questionPhase === "revealed" && currentQuestion?.followUpText && (
+          <div className="follow-up-overlay">
+            <div className="follow-up-card">
+              <div className="follow-up-icon">💡</div>
+              <div className="follow-up-label">Did you know?</div>
+              <div className="follow-up-text">{currentQuestion.followUpText}</div>
+            </div>
           </div>
         )}
       </div>

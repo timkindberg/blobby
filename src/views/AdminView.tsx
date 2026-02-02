@@ -9,6 +9,7 @@ import { getFriendlyErrorMessage } from "../lib/errorMessages";
 import { PRESENCE_TIMEOUT_MS } from "../../convex/players";
 import { ConfirmationModal, useConfirmation } from "../components/ConfirmationModal";
 import { AIQuestionModal } from "../components/AIQuestionModal";
+import type { QuestionCategory } from "../../lib/sampleQuestions";
 
 // Helper to check if a player is currently active based on heartbeat
 function isPlayerActive(player: { lastSeenAt?: number }): boolean {
@@ -95,12 +96,12 @@ function useHostAction(
 
     case "finished":
       return {
-        label: "Reset Game",
+        label: "New Game (Same Players)",
         action: async () => {
           await backToLobby({ sessionId });
         },
         disabled: false,
-        confirmMessage: "This will reset all player scores and progress. Continue?",
+        confirmMessage: "This will reset all player scores and start a new game with the same players. Continue?",
       };
 
     default:
@@ -377,17 +378,22 @@ export function AdminView({ onBack, initialCode, initialToken }: Props) {
   const [copiedHostLink, setCopiedHostLink] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
   const [showAIModal, setShowAIModal] = useState(false);
+  const [selectedCategories, setSelectedCategories] = useState<QuestionCategory[]>([]);
+  const [questionCount, setQuestionCount] = useState(10);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const confirmation = useConfirmation();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const createSession = useMutation(api.sessions.create);
   const deleteSession = useMutation(api.sessions.remove);
   const backToLobby = useMutation(api.sessions.backToLobby);
+  const regenerateQuestions = useMutation(api.sessions.regenerateQuestions);
   const exportQuestionsQuery = useQuery(
     api.questions.exportQuestions,
     sessionId ? { sessionId } : "skip"
   );
   const importQuestionsMutation = useMutation(api.questions.importQuestions);
+  const categoryInfo = useQuery(api.sessions.getCategoryInfo);
 
   const existingSessions = useQuery(api.sessions.listByHost, { hostId });
 
@@ -588,6 +594,42 @@ export function AdminView({ onBack, initialCode, initialToken }: Props) {
         fileInputRef.current.value = "";
       }
     }
+  }
+
+  async function handleRegenerateQuestions() {
+    if (!sessionId || isRegenerating) return;
+
+    setIsRegenerating(true);
+    setAdminError(null);
+    try {
+      await regenerateQuestions({
+        sessionId,
+        categories: selectedCategories.length > 0 ? selectedCategories : undefined,
+        questionCount,
+      });
+    } catch (err) {
+      setAdminError(getFriendlyErrorMessage(err));
+    } finally {
+      setIsRegenerating(false);
+    }
+  }
+
+  function toggleCategory(category: QuestionCategory) {
+    setSelectedCategories((prev) =>
+      prev.includes(category)
+        ? prev.filter((c) => c !== category)
+        : [...prev, category]
+    );
+  }
+
+  function selectAllCategories() {
+    if (categoryInfo) {
+      setSelectedCategories([...categoryInfo.categories] as QuestionCategory[]);
+    }
+  }
+
+  function clearAllCategories() {
+    setSelectedCategories([]);
   }
 
   // Session list view
@@ -862,6 +904,75 @@ export function AdminView({ onBack, initialCode, initialToken }: Props) {
               )}
             </div>
           </div>
+          {session.status === "lobby" && categoryInfo && (
+            <div className="category-selector">
+              <div className="category-selector-header">
+                <h3>Generate Questions by Category</h3>
+                <div className="category-selector-actions">
+                  <button
+                    onClick={selectAllCategories}
+                    className="category-action-btn"
+                    type="button"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={clearAllCategories}
+                    className="category-action-btn"
+                    type="button"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
+              <div className="category-grid">
+                {categoryInfo.categories.map((category) => {
+                  const label = categoryInfo.labels[category as QuestionCategory];
+                  const count = categoryInfo.counts[category as QuestionCategory];
+                  const isSelected = selectedCategories.includes(category as QuestionCategory);
+                  return (
+                    <label
+                      key={category}
+                      className={`category-chip ${isSelected ? "selected" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleCategory(category as QuestionCategory)}
+                      />
+                      <span className="category-label">{label}</span>
+                      <span className="category-count">({count})</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="category-generator-controls">
+                <div className="question-count-control">
+                  <label htmlFor="question-count">Questions to generate:</label>
+                  <input
+                    id="question-count"
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={questionCount}
+                    onChange={(e) => setQuestionCount(Math.max(1, Math.min(50, parseInt(e.target.value) || 10)))}
+                  />
+                </div>
+                <button
+                  onClick={handleRegenerateQuestions}
+                  disabled={isRegenerating}
+                  className="regenerate-button primary"
+                >
+                  {isRegenerating ? "Generating..." : "Generate New Questions"}
+                </button>
+                <p className="category-help-text">
+                  {selectedCategories.length === 0
+                    ? `All categories selected (${categoryInfo.total} questions available)`
+                    : `${selectedCategories.length} ${selectedCategories.length === 1 ? "category" : "categories"} selected`}
+                </p>
+              </div>
+            </div>
+          )}
           {session.status === "lobby" && (
             <AddQuestionForm sessionId={sessionId} />
           )}
@@ -995,6 +1106,7 @@ function QuestionItem({
   const [text, setText] = useState(question.text);
   const [options, setOptions] = useState(question.options.map(o => o.text));
   const [correctIndex, setCorrectIndex] = useState(question.correctOptionIndex);
+  const [followUpText, setFollowUpText] = useState(question.followUpText ?? "");
   const confirmation = useConfirmation();
 
   const updateQuestion = useMutation(api.questions.update);
@@ -1007,6 +1119,7 @@ function QuestionItem({
     setText(question.text);
     setOptions(question.options.map(o => o.text));
     setCorrectIndex(question.correctOptionIndex);
+    setFollowUpText(question.followUpText ?? "");
   }, [question]);
 
   async function handleSave() {
@@ -1015,6 +1128,7 @@ function QuestionItem({
       text: text.trim(),
       options: options.filter(o => o.trim()).map(o => ({ text: o.trim() })),
       correctOptionIndex: correctIndex,
+      followUpText: followUpText.trim() || undefined,
     });
     setIsEditing(false);
   }
@@ -1092,6 +1206,13 @@ function QuestionItem({
         <button type="button" onClick={() => setOptions([...options, ""])}>
           + Add Option
         </button>
+        <textarea
+          placeholder="Fun Fact / Follow-up (optional) - shown after answer reveal"
+          value={followUpText}
+          onChange={(e) => setFollowUpText(e.target.value)}
+          rows={2}
+          className="follow-up-textarea"
+        />
         <div className="edit-actions">
           <button onClick={handleSave} className="primary">Save</button>
           <button onClick={() => setIsEditing(false)}>Cancel</button>
@@ -1166,6 +1287,7 @@ function AddQuestionForm({ sessionId }: { sessionId: Id<"sessions"> }) {
   const [text, setText] = useState("");
   const [options, setOptions] = useState(["", ""]);
   const [correctIndex, setCorrectIndex] = useState<number | undefined>();
+  const [followUpText, setFollowUpText] = useState("");
 
   const createQuestion = useMutation(api.questions.create);
 
@@ -1178,11 +1300,13 @@ function AddQuestionForm({ sessionId }: { sessionId: Id<"sessions"> }) {
       text: text.trim(),
       options: options.filter((o) => o.trim()).map((o) => ({ text: o.trim() })),
       correctOptionIndex: correctIndex,
+      followUpText: followUpText.trim() || undefined,
     });
 
     setText("");
     setOptions(["", ""]);
     setCorrectIndex(undefined);
+    setFollowUpText("");
   }
 
   return (
@@ -1219,6 +1343,13 @@ function AddQuestionForm({ sessionId }: { sessionId: Id<"sessions"> }) {
       <button type="button" onClick={() => setOptions([...options, ""])}>
         + Add Option
       </button>
+      <textarea
+        placeholder="Fun Fact / Follow-up (optional) - shown after answer reveal"
+        value={followUpText}
+        onChange={(e) => setFollowUpText(e.target.value)}
+        rows={2}
+        className="follow-up-textarea"
+      />
       <button type="submit">Add Question</button>
     </form>
   );

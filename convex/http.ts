@@ -47,6 +47,7 @@ http.route({
           options: string[];
           correctIndex: number;
           timeLimit?: number;
+          followUpText?: string;
         }>;
       };
 
@@ -136,6 +137,7 @@ http.route({
           options: q.options.map((text) => ({ text })),
           correctOptionIndex: q.correctIndex,
           timeLimit: q.timeLimit || 30,
+          followUpText: q.followUpText,
         });
         questionIds.push(questionId);
       }

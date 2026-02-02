@@ -1,7 +1,24 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { getRandomQuestions } from "./sampleQuestions";
+import { getRandomQuestions, ALL_CATEGORIES, type QuestionCategory } from "./sampleQuestions";
 import { calculateElevationGain, calculateDynamicMax, SUMMIT } from "../lib/elevation";
+
+// Validator for question categories
+const categoryValidator = v.union(
+  v.literal("pop_culture"),
+  v.literal("science"),
+  v.literal("history"),
+  v.literal("geography"),
+  v.literal("sports"),
+  v.literal("music"),
+  v.literal("movies_tv"),
+  v.literal("food_drink"),
+  v.literal("technology"),
+  v.literal("programming"),
+  v.literal("animals"),
+  v.literal("literature"),
+  v.literal("general")
+);
 
 // Generate a random 4-character join code
 function generateCode(): string {
@@ -16,6 +33,8 @@ function generateCode(): string {
 export const create = mutation({
   args: {
     hostId: v.string(),
+    categories: v.optional(v.array(categoryValidator)),
+    questionCount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     // Generate unique code
@@ -46,8 +65,10 @@ export const create = mutation({
       createdAt: Date.now(),
     });
 
-    // Add 10 random sample questions from the question bank
-    const sampleQuestions = getRandomQuestions(10);
+    // Add random sample questions from the question bank
+    const count = args.questionCount ?? 10;
+    const categories = args.categories as QuestionCategory[] | undefined;
+    const sampleQuestions = getRandomQuestions(count, categories);
     for (let i = 0; i < sampleQuestions.length; i++) {
       const question = sampleQuestions[i]!;
       await ctx.db.insert("questions", {
@@ -56,7 +77,8 @@ export const create = mutation({
         options: question.options,
         correctOptionIndex: question.correctOptionIndex,
         order: i,
-        timeLimit: question.timeLimit,
+        timeLimit: question.timeLimit ?? 30,
+        followUpText: question.followUpText,
       });
     }
 
@@ -523,13 +545,15 @@ export const previousPhase = mutation({
   },
 });
 
-// Go back to lobby state (from active) to allow editing questions
+// Go back to lobby state (from active or finished) to allow editing questions
 export const backToLobby = mutation({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.sessionId);
     if (!session) throw new Error("Session not found");
-    if (session.status !== "active") throw new Error("Can only go back to lobby from active state");
+    if (session.status !== "active" && session.status !== "finished") {
+      throw new Error("Can only go back to lobby from active or finished state");
+    }
 
     // Reset question index and status
     await ctx.db.patch(args.sessionId, {
@@ -569,5 +593,67 @@ export const backToLobby = mutation({
         await ctx.db.delete(answer._id);
       }
     }
+  },
+});
+
+// Regenerate questions for a session (only works in lobby state)
+export const regenerateQuestions = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    categories: v.optional(v.array(categoryValidator)),
+    questionCount: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) throw new Error("Session not found");
+    if (session.status !== "lobby") {
+      throw new Error("Can only regenerate questions in lobby state");
+    }
+
+    // Delete existing questions
+    const existingQuestions = await ctx.db
+      .query("questions")
+      .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
+      .collect();
+
+    for (const question of existingQuestions) {
+      await ctx.db.delete(question._id);
+    }
+
+    // Add new random questions
+    const count = args.questionCount ?? 10;
+    const categories = args.categories as QuestionCategory[] | undefined;
+    const sampleQuestions = getRandomQuestions(count, categories);
+
+    for (let i = 0; i < sampleQuestions.length; i++) {
+      const question = sampleQuestions[i]!;
+      await ctx.db.insert("questions", {
+        sessionId: args.sessionId,
+        text: question.text,
+        options: question.options,
+        correctOptionIndex: question.correctOptionIndex,
+        order: i,
+        timeLimit: question.timeLimit ?? 30,
+        followUpText: question.followUpText,
+      });
+    }
+
+    return { count: sampleQuestions.length };
+  },
+});
+
+// Get category metadata for UI
+export const getCategoryInfo = query({
+  args: {},
+  handler: async () => {
+    // Import here to avoid circular dependencies
+    const { CATEGORY_LABELS, getQuestionCountByCategory, getTotalQuestionCount } = await import("./sampleQuestions");
+
+    return {
+      categories: ALL_CATEGORIES,
+      labels: CATEGORY_LABELS,
+      counts: getQuestionCountByCategory(),
+      total: getTotalQuestionCount(),
+    };
   },
 });

@@ -8,6 +8,7 @@ export const create = mutation({
     options: v.array(v.object({ text: v.string() })),
     correctOptionIndex: v.optional(v.number()),
     timeLimit: v.optional(v.number()),
+    followUpText: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.sessionId);
@@ -27,6 +28,7 @@ export const create = mutation({
       correctOptionIndex: args.correctOptionIndex,
       order: questions.length,
       timeLimit: args.timeLimit ?? 30, // Default 30 seconds
+      followUpText: args.followUpText,
     });
 
     return questionId;
@@ -94,6 +96,7 @@ export const update = mutation({
     options: v.optional(v.array(v.object({ text: v.string() }))),
     correctOptionIndex: v.optional(v.number()),
     timeLimit: v.optional(v.number()),
+    followUpText: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const question = await ctx.db.get(args.questionId);
@@ -109,6 +112,7 @@ export const update = mutation({
     if (args.options !== undefined) updates.options = args.options;
     if (args.correctOptionIndex !== undefined) updates.correctOptionIndex = args.correctOptionIndex;
     if (args.timeLimit !== undefined) updates.timeLimit = args.timeLimit;
+    if (args.followUpText !== undefined) updates.followUpText = args.followUpText;
 
     await ctx.db.patch(args.questionId, updates);
   },
@@ -228,6 +232,7 @@ export const exportQuestions = query({
         options: q.options.map((o) => o.text),
         correctIndex: q.correctOptionIndex ?? 0,
         timeLimit: q.timeLimit,
+        followUpText: q.followUpText,
       })),
     };
   },
@@ -243,6 +248,7 @@ export const importQuestions = mutation({
         options: v.array(v.string()),
         correctIndex: v.number(),
         timeLimit: v.optional(v.number()),
+        followUpText: v.optional(v.string()),
       })
     ),
   },
@@ -289,6 +295,7 @@ export const importQuestions = mutation({
         correctOptionIndex: q.correctIndex,
         order: args.questions.indexOf(q),
         timeLimit: q.timeLimit ?? 30,
+        followUpText: q.followUpText,
       });
     }
 

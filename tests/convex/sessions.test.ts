@@ -250,7 +250,7 @@ describe("sessions.backToLobby", () => {
     expect(hasAnswered).toBe(false);
   });
 
-  test("throws error when not in active state", async () => {
+  test("throws error when already in lobby state", async () => {
     const t = convexTest(schema, modules);
 
     const { sessionId } = await t.mutation(api.sessions.create, { hostId: "host-1" });
@@ -258,6 +258,60 @@ describe("sessions.backToLobby", () => {
     // Try to go back to lobby when already in lobby
     await expect(
       t.mutation(api.sessions.backToLobby, { sessionId })
-    ).rejects.toThrowError("Can only go back to lobby from active state");
+    ).rejects.toThrowError("Can only go back to lobby from active or finished state");
+  });
+
+  test("allows restart from finished state", async () => {
+    const t = convexTest(schema, modules);
+
+    const { sessionId } = await t.mutation(api.sessions.create, { hostId: "host-1" });
+
+    // Add a player
+    const playerId = await t.mutation(api.players.join, {
+      sessionId,
+      name: "TestPlayer",
+    });
+
+    // Use the first sample question (already created by sessions.create)
+    const questions = await t.query(api.questions.listBySession, { sessionId });
+    const firstQuestion = questions[0]!;
+
+    // Start the session and advance through it
+    await t.mutation(api.sessions.start, { sessionId });
+    await t.mutation(api.sessions.nextQuestion, { sessionId });
+    await t.mutation(api.sessions.showAnswers, { sessionId });
+
+    // Submit correct answer and reveal to give player elevation
+    await t.mutation(api.answers.submit, {
+      questionId: firstQuestion._id,
+      playerId,
+      optionIndex: firstQuestion.correctOptionIndex!,
+    });
+    await t.mutation(api.sessions.revealAnswer, { sessionId });
+
+    // Verify player has elevation before finishing
+    let players = await t.query(api.players.listBySession, { sessionId });
+    expect(players[0].elevation).toBeGreaterThan(0);
+
+    // Finish the session
+    await t.mutation(api.sessions.finish, { sessionId });
+
+    // Verify it's finished
+    let session = await t.query(api.sessions.get, { sessionId });
+    expect(session?.status).toBe("finished");
+
+    // Now restart the game with same players
+    await t.mutation(api.sessions.backToLobby, { sessionId });
+
+    // Verify it's back to lobby
+    session = await t.query(api.sessions.get, { sessionId });
+    expect(session?.status).toBe("lobby");
+    expect(session?.currentQuestionIndex).toBe(-1);
+
+    // Verify player is still there but elevation is reset
+    players = await t.query(api.players.listBySession, { sessionId });
+    expect(players).toHaveLength(1);
+    expect(players[0].name).toBe("TestPlayer");
+    expect(players[0].elevation).toBe(0);
   });
 });
