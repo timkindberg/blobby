@@ -344,7 +344,7 @@ export const revealAnswer = mutation({
       if (isCorrect) {
         const answerTime = answer.answeredAt - firstAnsweredAt;
         const playersOnMyLadder = answerCounts.get(answer.optionIndex) ?? 1;
-        const scoring = calculateElevationGain(answerTime, playersOnMyLadder, totalAnswered);
+        const scoring = calculateElevationGain(answerTime, playersOnMyLadder, totalAnswered, enabledQuestions.length);
         scoringResults.set(answer._id, { ...scoring, isCorrect: true });
       } else {
         scoringResults.set(answer._id, { baseScore: 0, minorityBonus: 0, total: 0, isCorrect: false });

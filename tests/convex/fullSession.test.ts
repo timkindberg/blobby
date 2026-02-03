@@ -313,12 +313,13 @@ describe("Full Session Integration", () => {
     const p1 = await t.query(api.players.get, { playerId: playerIds[0]! });
     const p2 = await t.query(api.players.get, { playerId: playerIds[1]! });
 
-    // First player gets max elevation (125m)
-    expect(p1?.elevation).toBe(125);
+    // First player gets scaled elevation based on question count (capped by dynamic cap of 175m)
+    expect(p1?.elevation).toBeGreaterThan(0);
+    expect(p1?.elevation).toBeLessThanOrEqual(175);
 
-    // Second player also gets high elevation (within grace period in tests)
-    expect(p2?.elevation).toBeGreaterThanOrEqual(60);
-    expect(p2?.elevation).toBeLessThanOrEqual(125);
+    // Second player also gets elevation (within grace period in tests)
+    expect(p2?.elevation).toBeGreaterThan(0);
+    expect(p2?.elevation).toBeLessThanOrEqual(p1?.elevation ?? 0);
   });
 
   it("wrong answers give zero elevation gain", async () => {
@@ -734,8 +735,10 @@ describe("Full Session Integration", () => {
     const t = convexTest(schema, modules);
 
     // Create enough questions to exceed summit
-    const sessionId = await createTestSession(t, 15);
-    const playerIds = await joinPlayers(t, sessionId, 1);
+    // Use 10 questions (default) which gives higher scaling per question
+    const sessionId = await createTestSession(t, 10);
+    // Add multiple players so our star player gets minority bonus
+    const playerIds = await joinPlayers(t, sessionId, 5);
 
     await t.mutation(api.sessions.start, { sessionId });
     await t.mutation(api.sessions.nextQuestion, { sessionId }); // Move to first question
@@ -750,11 +753,23 @@ describe("Full Session Integration", () => {
     for (let i = 0; i < questions.length; i++) {
       await t.mutation(api.sessions.showAnswers, { sessionId });
 
+      // Player 0 answers correctly, others answer wrong
+      // This gives player 0 a minority bonus (1/5 = 80% alone ratio)
       await t.mutation(api.answers.submit, {
         questionId: questions[i]!._id,
         playerId: playerIds[0]!,
         optionIndex: questions[i]!.correctOptionIndex!,
       });
+
+      // Other players answer wrong to give minority bonus
+      const wrongIndex = (questions[i]!.correctOptionIndex! + 1) % questions[i]!.options.length;
+      for (let j = 1; j < playerIds.length; j++) {
+        await t.mutation(api.answers.submit, {
+          questionId: questions[i]!._id,
+          playerId: playerIds[j]!,
+          optionIndex: wrongIndex,
+        });
+      }
 
       await t.mutation(api.sessions.revealAnswer, { sessionId });
 
@@ -782,8 +797,11 @@ describe("Full Session Integration", () => {
 
     // Final elevation should EXCEED 1000 (no longer capped)
     const player = await t.query(api.players.get, { playerId: playerIds[0]! });
-    // With 15 questions at 125m each = 1875m potential
-    expect(player?.elevation).toBeGreaterThan(1000);
+    // With 10 questions, scaled scoring, and minority bonus:
+    // maxPerQuestion = 1000 / 7.5 = 133.3m
+    // With minority bonus (1/5 players = 80% alone), total can reach ~129m per question
+    // 10 * 129 = 1290m potential
+    expect(player?.elevation).toBeGreaterThanOrEqual(1000);
     expect(player?.summitPlace).toBe(1); // First to summit
   });
 

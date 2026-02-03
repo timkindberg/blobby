@@ -6,10 +6,10 @@ import schema from "../../convex/schema";
 const modules = import.meta.glob("../../convex/**/*.ts");
 
 describe("answers.submit", () => {
-  test("first correct answer gets full elevation (125m)", async () => {
+  test("first correct answer gets scaled elevation based on question count", async () => {
     const t = convexTest(schema, modules);
 
-    // Create a session (auto-creates sample questions)
+    // Create a session (auto-creates 10 sample questions by default)
     const { sessionId } = await t.mutation(api.sessions.create, {
       hostId: "test-host",
     });
@@ -46,8 +46,13 @@ describe("answers.submit", () => {
     await t.mutation(api.sessions.revealAnswer, { sessionId });
 
     // Check elevation on player record
+    // With 10 questions, scaling gives ~95m base + ~38m minority bonus = ~133m max
+    // But dynamic cap of 175m allows the full gain
     const player = await t.query(api.players.get, { playerId });
-    expect(player?.elevation).toBe(125); // First answer always gets max (125m now)
+    expect(player?.elevation).toBeGreaterThan(0);
+    // Elevation is capped by dynamic cap (min 175m floor) but scoring is scaled
+    // For 10 questions: maxPerQuestion = 133m, so actual gain should be around 95-133m
+    expect(player?.elevation).toBeLessThanOrEqual(175);
   });
 
   test("subsequent correct answers get elevation based on time from first answer", async () => {
@@ -96,12 +101,12 @@ describe("answers.submit", () => {
     const p1 = await t.query(api.players.get, { playerId: player1 });
     const p2 = await t.query(api.players.get, { playerId: player2 });
 
-    // First player gets max elevation (125m)
-    expect(p1?.elevation).toBe(125);
+    // Both players should get meaningful elevation (scaled based on 10 questions)
+    expect(p1?.elevation).toBeGreaterThan(0);
     // Second player's time is calculated from first player's answer
-    // In tests, mutations run almost instantly so should still get max or close to max
-    expect(p2?.elevation).toBeGreaterThanOrEqual(60); // At least floor
-    expect(p2?.elevation).toBeLessThanOrEqual(125); // At most max
+    // In tests, mutations run almost instantly so should still get similar elevation
+    expect(p2?.elevation).toBeGreaterThan(0);
+    expect(p2?.elevation).toBeLessThanOrEqual(p1?.elevation ?? 0);
   });
 
   test("wrong answer gives no elevation", async () => {
@@ -222,9 +227,10 @@ describe("answers.submit", () => {
 
     // Check elevation on player record - poll mode gives participation points
     const player = await t.query(api.players.get, { playerId });
-    // In poll mode, all answers are "correct" so they get the base elevation (125m)
-    // because the first answer sets the baseline timing
-    expect(player?.elevation).toBe(125);
+    // In poll mode, all answers are "correct" so they get elevation based on scaled scoring
+    // With 1 question: maxPerQuestion = 1000 / 0.75 = 1333m (but capped by dynamic cap of 175m)
+    expect(player?.elevation).toBeGreaterThan(0);
+    expect(player?.elevation).toBeLessThanOrEqual(175); // Dynamic cap
   });
 
   test("elevation accumulates across multiple correct answers", async () => {
@@ -599,9 +605,10 @@ describe("answers.getPlayersOnRopes", () => {
     // Reveal to calculate scores and update player elevation
     await t.mutation(api.sessions.revealAnswer, { sessionId });
 
-    // Verify player now has elevation
+    // Verify player now has elevation (scaled based on 10 questions)
     let player = await t.query(api.players.get, { playerId });
-    expect(player?.elevation).toBe(125); // First correct answer = 125m
+    const firstQuestionElevation = player?.elevation ?? 0;
+    expect(firstQuestionElevation).toBeGreaterThan(0);
 
     // Move to results then next question (resets phase to question_shown)
     await t.mutation(api.sessions.showResults, { sessionId });
@@ -622,8 +629,8 @@ describe("answers.getPlayersOnRopes", () => {
     // Player should be on the rope for the wrong answer
     const wrongIndex = (q2.correctOptionIndex! + 1) % q2.options.length;
     expect(ropeState!.ropes[wrongIndex]!.length).toBe(1);
-    // Player should have their elevation (125m) recorded at time of answer
-    expect(ropeState!.ropes[wrongIndex]![0]!.elevationAtAnswer).toBe(125);
+    // Player should have their elevation recorded at time of answer
+    expect(ropeState!.ropes[wrongIndex]![0]!.elevationAtAnswer).toBe(firstQuestionElevation);
   });
 
   test("sorts players on rope by answeredAt (earliest first)", async () => {

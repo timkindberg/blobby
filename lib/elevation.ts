@@ -5,74 +5,144 @@
  * Scoring has two components:
  * 1. Base score from answer speed (linear 0-10s)
  * 2. Minority bonus for choosing less popular answers
+ *
+ * Scoring is scaled based on total questions to ensure summit (~1000m)
+ * is reached after approximately 66% of questions with perfect answers.
  */
 
 // Elevation constants
 export const SUMMIT = 1000; // Max elevation (game ends)
 
+// Default values for unscaled scoring (used when totalQuestions not provided)
+const DEFAULT_MAX_BASE_SCORE = 125;
+const DEFAULT_MAX_MINORITY_BONUS = 50;
+
+// Target percentage of questions to reach summit with perfect answers
+const TARGET_SUMMIT_PERCENTAGE = 0.66;
+
+/**
+ * Calculate the maximum elevation gain per question based on total questions.
+ * This ensures players reach summit after ~66% of questions with perfect answers.
+ *
+ * Formula: maxPerQuestion = SUMMIT / (totalQuestions * 0.66)
+ *
+ * Examples:
+ * - 10 questions: 1000 / 6.6 = 152m per question
+ * - 20 questions: 1000 / 13.2 = 76m per question
+ * - 45 questions: 1000 / 29.7 = 34m per question
+ *
+ * @param totalQuestions - Total number of questions in the game
+ * @returns Maximum elevation gain per perfect answer
+ */
+export function calculateMaxPerQuestion(totalQuestions: number): number {
+  if (totalQuestions <= 0) return DEFAULT_MAX_BASE_SCORE + DEFAULT_MAX_MINORITY_BONUS;
+  const targetQuestions = totalQuestions * TARGET_SUMMIT_PERCENTAGE;
+  return SUMMIT / targetQuestions;
+}
+
 /**
  * Calculate base elevation score based on answer speed.
- * Linear formula: 125 - (responseTimeSeconds * 12.5)
+ * Score is scaled based on total questions when provided.
  *
- * 0.0s:   125m
- * 1.0s:   112.5m
- * 5.0s:   62.5m
- * 10s+:   0m
+ * Linear formula: maxBase - (responseTimeSeconds * (maxBase / 10))
+ * At 0s: maxBase, at 10s: 0
+ *
+ * When scaled (totalQuestions provided):
+ * - maxBase = maxPerQuestion * (125/175) ≈ 71% of max goes to base score
+ *
+ * When unscaled (default):
+ * - 0.0s:   125m
+ * - 1.0s:   112.5m
+ * - 5.0s:   62.5m
+ * - 10s+:   0m
  *
  * @param answerTimeMs - Time to answer in milliseconds
- * @returns Base elevation score in meters (0-125)
+ * @param totalQuestions - Optional total questions for scaling (undefined = use default 125m max)
+ * @returns Base elevation score in meters
  */
-export function calculateBaseScore(answerTimeMs: number): number {
+export function calculateBaseScore(answerTimeMs: number, totalQuestions?: number): number {
   const seconds = Math.max(0, answerTimeMs / 1000); // Handle negative times
-  const baseScore = Math.max(0, 125 - seconds * 12.5);
+
+  // Calculate max base score (either scaled or default)
+  let maxBase: number;
+  if (totalQuestions !== undefined && totalQuestions > 0) {
+    const maxPerQuestion = calculateMaxPerQuestion(totalQuestions);
+    // Base score gets ~71% of max (125/175 ratio from original design)
+    maxBase = maxPerQuestion * (DEFAULT_MAX_BASE_SCORE / (DEFAULT_MAX_BASE_SCORE + DEFAULT_MAX_MINORITY_BONUS));
+  } else {
+    maxBase = DEFAULT_MAX_BASE_SCORE;
+  }
+
+  const baseScore = Math.max(0, maxBase - seconds * (maxBase / 10));
   return Math.round(baseScore);
 }
 
 /**
  * Calculate minority bonus based on answer distribution.
  * Players who chose less popular answers get a bonus.
+ * Bonus is scaled based on total questions when provided.
  *
  * aloneRatio = 1 - (playersOnMyLadder / totalAnswered)
- * minorityBonus = aloneRatio * 50
+ * minorityBonus = aloneRatio * maxBonus
  *
- * Examples:
+ * When scaled (totalQuestions provided):
+ * - maxBonus = maxPerQuestion * (50/175) ≈ 29% of max goes to minority bonus
+ *
+ * When unscaled (default maxBonus = 50):
  * - 1 player chose this, 10 total: aloneRatio = 0.9, bonus = 45m
  * - 5 players chose this, 10 total: aloneRatio = 0.5, bonus = 25m
  * - 10 players chose this, 10 total: aloneRatio = 0.0, bonus = 0m
  *
  * @param playersOnMyLadder - Number of players who chose the same answer
  * @param totalAnswered - Total number of players who answered
- * @returns Minority bonus in meters (0-50)
+ * @param totalQuestions - Optional total questions for scaling (undefined = use default 50m max)
+ * @returns Minority bonus in meters
  */
 export function calculateMinorityBonus(
   playersOnMyLadder: number,
-  totalAnswered: number
+  totalAnswered: number,
+  totalQuestions?: number
 ): number {
   if (totalAnswered === 0) return 0;
+
+  // Calculate max bonus (either scaled or default)
+  let maxBonus: number;
+  if (totalQuestions !== undefined && totalQuestions > 0) {
+    const maxPerQuestion = calculateMaxPerQuestion(totalQuestions);
+    // Minority bonus gets ~29% of max (50/175 ratio from original design)
+    maxBonus = maxPerQuestion * (DEFAULT_MAX_MINORITY_BONUS / (DEFAULT_MAX_BASE_SCORE + DEFAULT_MAX_MINORITY_BONUS));
+  } else {
+    maxBonus = DEFAULT_MAX_MINORITY_BONUS;
+  }
+
   const aloneRatio = 1 - playersOnMyLadder / totalAnswered;
-  const minorityBonus = aloneRatio * 50;
+  const minorityBonus = aloneRatio * maxBonus;
   return Math.round(minorityBonus);
 }
 
 /**
  * Calculate total elevation gain combining base score and minority bonus.
+ * Scoring is scaled based on total questions to ensure summit is reached
+ * after approximately 66% of questions with perfect answers.
  *
  * @param answerTimeMs - Time to answer in milliseconds
  * @param playersOnMyLadder - Number of players who chose the same answer
  * @param totalAnswered - Total number of players who answered
+ * @param totalQuestions - Optional total questions for scaling (undefined = use legacy scoring)
  * @returns Object with baseScore, minorityBonus, and total elevation gain
  */
 export function calculateElevationGain(
   answerTimeMs: number,
   playersOnMyLadder: number,
-  totalAnswered: number
+  totalAnswered: number,
+  totalQuestions?: number
 ): {
   baseScore: number;
   minorityBonus: number;
   total: number;
 } {
-  const baseScore = calculateBaseScore(answerTimeMs);
-  const minorityBonus = calculateMinorityBonus(playersOnMyLadder, totalAnswered);
+  const baseScore = calculateBaseScore(answerTimeMs, totalQuestions);
+  const minorityBonus = calculateMinorityBonus(playersOnMyLadder, totalAnswered, totalQuestions);
   return {
     baseScore,
     minorityBonus,
@@ -137,7 +207,8 @@ export function calculateDynamicMax(
   }
 
   // Calculate boost cap to help trailing players catch up
-  const boostCap = distanceToSummit / questionsRemaining;
+  // Use same percentage as scoring - catch up in 66% of remaining questions
+  const boostCap = distanceToSummit / (questionsRemaining * TARGET_SUMMIT_PERCENTAGE);
 
   // Only boost, never reduce - 175m is the floor
   return Math.max(MAX_CAP, Math.round(boostCap));

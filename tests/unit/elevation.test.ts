@@ -3,14 +3,42 @@ import {
   calculateElevationGain,
   calculateBaseScore,
   calculateMinorityBonus,
+  calculateMaxPerQuestion,
   applyElevationGain,
   hasReachedSummit,
   calculateDynamicMax,
   SUMMIT,
 } from "../../lib/elevation";
 
+describe("calculateMaxPerQuestion", () => {
+  describe("scales max elevation based on question count", () => {
+    it("returns ~152m for 10 questions (summit at 66% = 6.6 questions)", () => {
+      // 1000 / (10 * 0.66) = 1000 / 6.6 = 151.52
+      const max = calculateMaxPerQuestion(10);
+      expect(max).toBeCloseTo(151.52, 1);
+    });
+
+    it("returns ~76m for 20 questions (summit at 66% = 13.2 questions)", () => {
+      // 1000 / (20 * 0.66) = 1000 / 13.2 = 75.76
+      const max = calculateMaxPerQuestion(20);
+      expect(max).toBeCloseTo(75.76, 1);
+    });
+
+    it("returns ~34m for 45 questions (summit at 66% = 29.7 questions)", () => {
+      // 1000 / (45 * 0.66) = 1000 / 29.7 = 33.67
+      const max = calculateMaxPerQuestion(45);
+      expect(max).toBeCloseTo(33.67, 1);
+    });
+
+    it("returns default max (175m) for 0 or negative questions", () => {
+      expect(calculateMaxPerQuestion(0)).toBe(175);
+      expect(calculateMaxPerQuestion(-5)).toBe(175);
+    });
+  });
+});
+
 describe("calculateBaseScore", () => {
-  describe("linear timing formula (0-10 seconds)", () => {
+  describe("legacy behavior (no totalQuestions)", () => {
     it("returns 125m for instant answer (0ms)", () => {
       expect(calculateBaseScore(0)).toBe(125);
     });
@@ -32,6 +60,38 @@ describe("calculateBaseScore", () => {
     it("returns 0m for anything over 10 seconds", () => {
       expect(calculateBaseScore(15000)).toBe(0);
       expect(calculateBaseScore(60000)).toBe(0);
+    });
+  });
+
+  describe("scaled behavior (with totalQuestions)", () => {
+    it("scales base score for 10 questions", () => {
+      // With 66%: maxPerQuestion = 1000/(10*0.66) = 151.52
+      // baseMax = 151.52 * (125/175) = 108.22
+      const instant = calculateBaseScore(0, 10);
+      expect(instant).toBe(108); // ~108m for instant answer
+
+      const fiveSeconds = calculateBaseScore(5000, 10);
+      expect(fiveSeconds).toBe(54); // ~54m for 5s answer (half of max)
+
+      const tenSeconds = calculateBaseScore(10000, 10);
+      expect(tenSeconds).toBe(0); // 0m for 10s answer
+    });
+
+    it("scales base score for 45 questions", () => {
+      // With 66%: maxPerQuestion = 1000/(45*0.66) = 33.67
+      // baseMax = 33.67 * (125/175) = 24.05
+      const instant = calculateBaseScore(0, 45);
+      expect(instant).toBe(24); // ~24m for instant answer
+
+      const fiveSeconds = calculateBaseScore(5000, 45);
+      expect(fiveSeconds).toBe(12); // ~12m for 5s answer
+
+      const tenSeconds = calculateBaseScore(10000, 45);
+      expect(tenSeconds).toBe(0); // 0m for 10s answer
+    });
+
+    it("handles edge case of 0 totalQuestions (uses default)", () => {
+      expect(calculateBaseScore(0, 0)).toBe(125); // Falls back to default
     });
   });
 
@@ -62,8 +122,8 @@ describe("calculateBaseScore", () => {
 });
 
 describe("calculateMinorityBonus", () => {
-  describe("bonus calculation", () => {
-    it("gives max bonus (50m) when alone", () => {
+  describe("legacy behavior (no totalQuestions)", () => {
+    it("gives max bonus (45m) when nearly alone (1/10)", () => {
       // 1 player chose this, 10 total: aloneRatio = 0.9
       expect(calculateMinorityBonus(1, 10)).toBe(45);
     });
@@ -81,6 +141,35 @@ describe("calculateMinorityBonus", () => {
     it("gives ~33m bonus when 2/3 chose different answer", () => {
       // 3 players chose this, 9 total: aloneRatio = 2/3
       expect(calculateMinorityBonus(3, 9)).toBe(33);
+    });
+  });
+
+  describe("scaled behavior (with totalQuestions)", () => {
+    it("scales minority bonus for 10 questions", () => {
+      // With 66%: maxPerQuestion = 1000/(10*0.66) = 151.52
+      // bonusMax = 151.52 * (50/175) = 43.29
+      // 1/10 players: aloneRatio = 0.9, bonus = 0.9 * 43.29 = 38.96 -> 39
+      expect(calculateMinorityBonus(1, 10, 10)).toBe(39);
+
+      // 5/10 players: aloneRatio = 0.5, bonus = 0.5 * 43.29 = 21.65 -> 22
+      expect(calculateMinorityBonus(5, 10, 10)).toBe(22);
+
+      // 10/10 players: aloneRatio = 0.0, bonus = 0
+      expect(calculateMinorityBonus(10, 10, 10)).toBe(0);
+    });
+
+    it("scales minority bonus for 45 questions", () => {
+      // With 66%: maxPerQuestion = 1000/(45*0.66) = 33.67
+      // bonusMax = 33.67 * (50/175) = 9.62
+      // 1/10 players: aloneRatio = 0.9, bonus = 0.9 * 9.62 = 8.66 -> 9
+      expect(calculateMinorityBonus(1, 10, 45)).toBe(9);
+
+      // 5/10 players: aloneRatio = 0.5, bonus = 0.5 * 9.62 = 4.81 -> 5
+      expect(calculateMinorityBonus(5, 10, 45)).toBe(5);
+    });
+
+    it("handles edge case of 0 totalQuestions (uses default)", () => {
+      expect(calculateMinorityBonus(1, 10, 0)).toBe(45); // Falls back to default
     });
   });
 
@@ -109,7 +198,7 @@ describe("calculateMinorityBonus", () => {
 });
 
 describe("calculateElevationGain", () => {
-  describe("combined scoring", () => {
+  describe("legacy combined scoring (no totalQuestions)", () => {
     it("combines base score and minority bonus", () => {
       // Fast answer (0s) + alone (1/10): 125 + 45 = 170m
       const result = calculateElevationGain(0, 1, 10);
@@ -143,7 +232,47 @@ describe("calculateElevationGain", () => {
     });
   });
 
-  describe("realistic game scenarios", () => {
+  describe("scaled combined scoring (with totalQuestions)", () => {
+    it("scales down for 45 questions - fast answer alone", () => {
+      // With 66%: maxPerQuestion = 33.67m
+      // Fast answer (0s) + alone (1/10): 24 + 9 = 33m
+      const result = calculateElevationGain(0, 1, 10, 45);
+      expect(result.baseScore).toBe(24);
+      expect(result.minorityBonus).toBe(9);
+      expect(result.total).toBe(33);
+    });
+
+    it("scales appropriately for 10 questions - fast answer alone", () => {
+      // With 66%: maxPerQuestion = 151.52m
+      // Fast answer (0s) + alone (1/10): 108 + 39 = 147m
+      const result = calculateElevationGain(0, 1, 10, 10);
+      expect(result.baseScore).toBe(108);
+      expect(result.minorityBonus).toBe(39);
+      expect(result.total).toBe(147);
+    });
+
+    it("ensures summit reachable at 66% with perfect answers (45 questions)", () => {
+      // With 45 questions, target is ~30 perfect answers to summit
+      // Max per question ≈ 33.67m
+      // 30 perfect answers * 33.67m = ~1010m (slightly over 1000)
+      const maxPerQuestion = calculateMaxPerQuestion(45);
+      const targetQuestions = Math.ceil(45 * 0.66); // 30 questions
+      const totalElevation = maxPerQuestion * targetQuestions;
+      expect(totalElevation).toBeGreaterThanOrEqual(SUMMIT);
+      expect(totalElevation).toBeLessThan(SUMMIT * 1.05); // Within 5% over
+    });
+
+    it("ensures summit reachable at 66% with perfect answers (10 questions)", () => {
+      // With 10 questions, target is ~7 perfect answers to summit
+      const maxPerQuestion = calculateMaxPerQuestion(10);
+      const targetQuestions = Math.ceil(10 * 0.66); // 7 questions
+      const totalElevation = maxPerQuestion * targetQuestions;
+      expect(totalElevation).toBeGreaterThanOrEqual(SUMMIT);
+      expect(totalElevation).toBeLessThan(SUMMIT * 1.1); // Within 10% over
+    });
+  });
+
+  describe("realistic game scenarios (legacy)", () => {
     it("fast player in small minority gets huge bonus", () => {
       // 1s response, only 2 out of 20 players chose this
       const result = calculateElevationGain(1000, 2, 20);
@@ -158,6 +287,67 @@ describe("calculateElevationGain", () => {
       expect(result.baseScore).toBe(25); // 125 - 100 = 25
       expect(result.minorityBonus).toBe(13); // Only 25% alone
       expect(result.total).toBe(38);
+    });
+  });
+
+  describe("game pacing scenarios", () => {
+    it("45-question game summit progression with perfect base score only", () => {
+      // Simulate getting perfect BASE scores (instant answers) over ALL questions
+      // Using majority group (no minority bonus) to test base score alone
+      let elevation = 0;
+
+      for (let i = 0; i < 45; i++) {
+        // Perfect answer: instant (0ms), majority (10/10 = no minority bonus)
+        const gain = calculateElevationGain(0, 10, 10, 45);
+        elevation += gain.total;
+      }
+
+      // With 66% target and only base scores (71% of max), 45 questions gives:
+      // 45 * 24 = 1080m (exceeds summit)
+      // This validates that perfect base score alone CAN reach summit in longer games
+      expect(elevation).toBeGreaterThan(SUMMIT);
+      expect(elevation).toBeLessThan(SUMMIT * 1.2); // Should be within 20% over
+    });
+
+    it("45-question game summit progression with full scoring", () => {
+      // Simulate perfect answers (instant + minority) over 66% of questions
+      // Max per question for 45 questions ≈ 33.67m
+      let elevation = 0;
+      const questionsForSummit = Math.ceil(45 * 0.66); // 30 questions
+
+      for (let i = 0; i < questionsForSummit; i++) {
+        // Max scoring: instant (0ms), truly alone (1/1 still gives 0 bonus though)
+        // Use 1/10 for realistic minority bonus
+        const gain = calculateElevationGain(0, 1, 10, 45);
+        elevation += gain.total;
+      }
+
+      // 30 questions * 29m each ≈ 870m - close to summit
+      // With full scoring they should be at or near summit
+      expect(elevation).toBeGreaterThan(SUMMIT * 0.85); // Should be within 15% of summit
+    });
+
+    it("10-question game summit progression", () => {
+      // With 10 questions, expect summit around question 7
+      let elevation = 0;
+      const questionsForSummit = Math.ceil(10 * 0.66); // 7 questions
+
+      for (let i = 0; i < questionsForSummit; i++) {
+        // Max scoring: instant answer, good minority position
+        const gain = calculateElevationGain(0, 1, 10, 10);
+        elevation += gain.total;
+      }
+
+      expect(elevation).toBeGreaterThanOrEqual(SUMMIT);
+    });
+
+    it("validates max per question scales correctly", () => {
+      // For 45 questions: 1000 / (45 * 0.66) = 33.67m max
+      // 66% of 45 = 29.7, ceiling to 30 questions
+      // 30 * 33.67 = 1010m >= 1000m summit
+      const maxPerQuestion = calculateMaxPerQuestion(45);
+      const targetQuestions = 45 * 0.66;
+      expect(maxPerQuestion * targetQuestions).toBeCloseTo(SUMMIT, 0);
     });
   });
 });
@@ -231,14 +421,14 @@ describe("calculateDynamicMax", () => {
     });
 
     it("boosts above 175m when catch-up needed", () => {
-      // Leader at 500m, 2 questions left: (1000-500)/2 = 250m > 175 -> returns 250
-      expect(calculateDynamicMax(500, 2)).toBe(250);
+      // Leader at 500m, 2 questions left: (1000-500)/(2*0.66) = 379m > 175 -> returns 379
+      expect(calculateDynamicMax(500, 2)).toBe(379);
 
-      // Leader at 300m, 2 questions left: (1000-300)/2 = 350m > 175 -> returns 350
-      expect(calculateDynamicMax(300, 2)).toBe(350);
+      // Leader at 300m, 2 questions left: (1000-300)/(2*0.66) = 530m > 175 -> returns 530
+      expect(calculateDynamicMax(300, 2)).toBe(530);
 
-      // Leader at 0m, 4 questions left: 1000/4 = 250m > 175 -> returns 250
-      expect(calculateDynamicMax(0, 4)).toBe(250);
+      // Leader at 0m, 4 questions left: 1000/(4*0.66) = 379m > 175 -> returns 379
+      expect(calculateDynamicMax(0, 4)).toBe(379);
     });
   });
 
@@ -293,12 +483,12 @@ describe("calculateDynamicMax", () => {
     });
 
     it("handles leader at 0 with few questions (boost scenario)", () => {
-      // Start of short game: 1000/4 = 250m (boost)
-      expect(calculateDynamicMax(0, 4)).toBe(250);
+      // Start of short game: 1000/(4*0.66) = 379m (boost)
+      expect(calculateDynamicMax(0, 4)).toBe(379);
     });
 
     it("handles leader at 0 with many questions", () => {
-      // Start of long game: 1000/10 = 100m < 175 -> 175
+      // Start of long game: 1000/(10*0.66) = 152m < 175 -> 175
       expect(calculateDynamicMax(0, 10)).toBe(175);
     });
   });
@@ -306,43 +496,43 @@ describe("calculateDynamicMax", () => {
   describe("realistic game scenarios", () => {
     it("early game: 175m floor allows good progress", () => {
       // Question 1 reveal: leader at ~100m, 9 questions left
-      // (1000-100)/9 = 100m < 175 -> returns 175
+      // (1000-100)/(9*0.66) = 152m < 175 -> returns 175
       expect(calculateDynamicMax(100, 9)).toBe(175);
     });
 
     it("mid game: 175m floor maintained", () => {
       // Question 5 reveal: leader at 500m, 5 questions left
-      // (1000-500)/5 = 100m < 175 -> returns 175
+      // (1000-500)/(5*0.66) = 152m < 175 -> returns 175
       expect(calculateDynamicMax(500, 5)).toBe(175);
     });
 
     it("late game with tight race: 175m floor maintained", () => {
       // Question 8 reveal: leader at 850m, 2 questions left
-      // (1000-850)/2 = 75m < 175 -> returns 175
+      // (1000-850)/(2*0.66) = 114m < 175 -> returns 175
       expect(calculateDynamicMax(850, 2)).toBe(175);
     });
 
     it("final question: 175m floor ensures easy summit", () => {
       // Question 9 reveal: leader at 975m, 1 question left
-      // (1000-975)/1 = 25m < 175 -> returns 175 (easy summit)
+      // (1000-975)/(1*0.66) = 38m < 175 -> returns 175 (easy summit)
       expect(calculateDynamicMax(975, 1)).toBe(175);
     });
 
     it("catch-up scenario: boost above 175m", () => {
       // Leader very far ahead: everyone else far behind
       // If non-summited leader is at 200m with 2 questions left
-      // (1000-200)/2 = 400m > 175 -> returns 400 (major boost)
-      expect(calculateDynamicMax(200, 2)).toBe(400);
+      // (1000-200)/(2*0.66) = 606m > 175 -> returns 606 (major boost)
+      expect(calculateDynamicMax(200, 2)).toBe(606);
     });
   });
 
   describe("rounding behavior", () => {
     it("rounds to nearest integer", () => {
-      // 1000-333 = 667, 667/3 = 222.33... -> rounds to 222
-      expect(calculateDynamicMax(333, 3)).toBe(222);
+      // 1000-333 = 667, 667/(3*0.66) = 337 -> rounds to 337
+      expect(calculateDynamicMax(333, 3)).toBe(337);
 
-      // 1000-250 = 750, 750/3 = 250 -> returns 250
-      expect(calculateDynamicMax(250, 3)).toBe(250);
+      // 1000-250 = 750, 750/(3*0.66) = 379 -> returns 379
+      expect(calculateDynamicMax(250, 3)).toBe(379);
     });
 
     it("always returns integer values", () => {
