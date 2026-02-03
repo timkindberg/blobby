@@ -174,6 +174,48 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
   // This prevents the appear animation from replaying when blob state changes
   const appearedBlobsRef = useRef<Set<string>>(new Set());
 
+  // Track when to show follow-up text (after reveal animations complete)
+  // The reveal sequence takes ~4 seconds: 1500ms tension + up to 2400ms snipping + 500ms delay
+  const [showFollowUp, setShowFollowUp] = useState(false);
+  const followUpTimerRef = useRef<number | null>(null);
+
+  // Show follow-up text after reveal animations complete
+  useEffect(() => {
+    const phase = ropeClimbingState?.questionPhase;
+
+    // When entering "revealed" phase, start a timer to show follow-up after animations
+    if (phase === "revealed" && currentQuestion?.followUpText) {
+      // Clear any existing timer
+      if (followUpTimerRef.current) {
+        window.clearTimeout(followUpTimerRef.current);
+      }
+
+      // Calculate delay based on reveal animation timing:
+      // 1500ms initial tension + (wrongRopes - 1) * 800ms stagger + 500ms post-snip + 500ms buffer
+      // For worst case (3 wrong ropes): 1500 + 1600 + 500 + 500 = 4100ms
+      const wrongRopeCount = ropeClimbingState?.ropes.filter(r => r.isCorrect === false).length ?? 0;
+      const snipAnimationTime = wrongRopeCount > 0 ? (wrongRopeCount - 1) * 800 : 0;
+      const totalDelay = 1500 + snipAnimationTime + 500 + 500; // tension + snipping + post-snip + buffer
+
+      followUpTimerRef.current = window.setTimeout(() => {
+        setShowFollowUp(true);
+      }, totalDelay);
+    } else if (phase !== "revealed") {
+      // Reset when leaving revealed phase
+      setShowFollowUp(false);
+      if (followUpTimerRef.current) {
+        window.clearTimeout(followUpTimerRef.current);
+        followUpTimerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (followUpTimerRef.current) {
+        window.clearTimeout(followUpTimerRef.current);
+      }
+    };
+  }, [ropeClimbingState?.questionPhase, ropeClimbingState?.ropes, currentQuestion?.followUpText]);
+
   // Compute shuffled answer order for deterministic randomization
   // Uses session code + question index as seed so all views see the same order
   const shuffledAnswers = useMemo(() => {
@@ -442,8 +484,8 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
           </div>
         )}
 
-        {/* Follow-up text overlay during revealed phase */}
-        {questionPhase === "revealed" && currentQuestion?.followUpText && (
+        {/* Follow-up text overlay - shown after reveal animations complete */}
+        {showFollowUp && currentQuestion?.followUpText && (
           <div className="follow-up-overlay">
             <div className="follow-up-card">
               <div className="follow-up-icon">💡</div>

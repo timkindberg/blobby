@@ -18,7 +18,9 @@ import { shuffleOptions, hashString, shuffleWithSeed } from "../../lib/shuffle";
 
 // localStorage helpers for session persistence
 // Using localStorage so players can rejoin after closing the browser/tab
-const STORAGE_KEY = "blobby_player";
+// Stores multiple sessions keyed by code+name to support multiple tabs with different players
+const STORAGE_KEY = "blobby_player_sessions";
+const OLD_STORAGE_KEY = "blobby_player"; // Legacy single-session key
 
 interface StoredSession {
   playerId: string;
@@ -27,22 +29,79 @@ interface StoredSession {
   playerName: string;
 }
 
-function saveSession(playerId: Id<"players">, sessionId: Id<"sessions">, sessionCode: string, playerName: string) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ playerId, sessionId, sessionCode, playerName }));
+// Storage format: { "CODE:name": StoredSession, ... }
+type StoredSessions = Record<string, StoredSession>;
+
+function getSessionKey(code: string, name: string): string {
+  // Normalize: uppercase code, exact name (case-sensitive)
+  return `${code.toUpperCase()}:${name}`;
 }
 
-function loadSession(): StoredSession | null {
+function loadAllSessions(): StoredSessions {
   try {
+    // First, check for and migrate legacy single-session format
+    const oldStored = localStorage.getItem(OLD_STORAGE_KEY);
+    if (oldStored) {
+      const oldSession = JSON.parse(oldStored) as StoredSession;
+      // Migrate to new format
+      const key = getSessionKey(oldSession.sessionCode, oldSession.playerName);
+      const migrated: StoredSessions = { [key]: oldSession };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+      localStorage.removeItem(OLD_STORAGE_KEY);
+      return migrated;
+    }
+
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return null;
-    return JSON.parse(stored) as StoredSession;
+    if (!stored) return {};
+    return JSON.parse(stored) as StoredSessions;
   } catch {
-    return null;
+    return {};
   }
 }
 
-function clearSession() {
-  localStorage.removeItem(STORAGE_KEY);
+function saveSession(playerId: Id<"players">, sessionId: Id<"sessions">, sessionCode: string, playerName: string) {
+  const sessions = loadAllSessions();
+  const key = getSessionKey(sessionCode, playerName);
+  sessions[key] = { playerId, sessionId, sessionCode, playerName };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+}
+
+function loadSession(code?: string, name?: string): StoredSession | null {
+  const sessions = loadAllSessions();
+
+  // If code and name provided, look up that specific session
+  if (code && name) {
+    const key = getSessionKey(code, name);
+    return sessions[key] ?? null;
+  }
+
+  // Fallback: return the first session found (for backwards compatibility)
+  // This handles the case where URL doesn't have code/name yet
+  const keys = Object.keys(sessions);
+  if (keys.length > 0) {
+    return sessions[keys[0]!] ?? null;
+  }
+
+  return null;
+}
+
+function clearSession(code?: string, name?: string) {
+  if (code && name) {
+    // Clear specific session
+    const sessions = loadAllSessions();
+    const key = getSessionKey(code, name);
+    delete sessions[key];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  } else {
+    // Clear all sessions (used when no specific session to clear)
+    localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
+function clearCurrentSession(session: StoredSession | null) {
+  if (session) {
+    clearSession(session.sessionCode, session.playerName);
+  }
 }
 
 /**
@@ -103,21 +162,22 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
   const reactivatePlayer = useMutation(api.players.reactivate);
 
   // Try to restore session from localStorage on mount
+  // Uses URL's code and name to look up the correct session for this tab
   useEffect(() => {
-    const stored = loadSession();
+    const stored = loadSession(initialCode ?? undefined, initialName ?? undefined);
     if (stored) {
       // Store locally to trigger the checkStoredSession query
       setStoredSession(stored);
     }
     setIsRestoring(false);
-  }, []);
+  }, [initialCode, initialName]);
 
   // Handle the result of checking stored session
   useEffect(() => {
     if (storedSession && checkStoredSession !== undefined) {
       if (checkStoredSession === null) {
         // Stored session is invalid - clear it
-        clearSession();
+        clearCurrentSession(storedSession);
         setStoredSession(null);
       }
       // If valid, we keep storedSession to show the rejoin UI
@@ -308,18 +368,18 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
   useEffect(() => {
     if (!isRestoring && playerId && player === null) {
       // Player no longer exists in DB - clear stored session
-      clearSession();
+      clearCurrentSession(storedSession);
       setPlayerId(null);
       setSessionId(null);
     }
-  }, [isRestoring, playerId, player]);
+  }, [isRestoring, playerId, player, storedSession]);
 
   // Clear localStorage when session finishes
   useEffect(() => {
-    if (session?.status === "finished") {
-      clearSession();
+    if (session?.status === "finished" && session?.code && player?.name) {
+      clearSession(session.code, player.name);
     }
-  }, [session?.status]);
+  }, [session?.status, session?.code, player?.name]);
 
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault();
@@ -363,7 +423,7 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
       setStoredSession(null);
     } catch (err) {
       // Session/player no longer valid - clear and show join form
-      clearSession();
+      clearCurrentSession(storedSession);
       setStoredSession(null);
       setError(getFriendlyErrorMessage(err));
     } finally {
@@ -399,7 +459,7 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
   }, [initialCode, initialName, storedSession, checkStoredSession, isRejoining, playerId, handleRejoin]);
 
   function handleStartFresh() {
-    clearSession();
+    clearCurrentSession(storedSession);
     setStoredSession(null);
     setJoinCode(initialCode ?? "");
     setPlayerName("");
@@ -408,7 +468,7 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
 
   function handleLeave() {
-    clearSession();
+    clearCurrentSession(storedSession);
     setStoredSession(null);
     setPlayerId(null);
     setSessionId(null);

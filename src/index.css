@@ -3655,12 +3655,12 @@ button.primary:disabled {
   max-width: 100%;
 }
 
-/* Follow-up text overlay (shown during revealed phase) */
+/* Follow-up text overlay (shown after reveal animations complete) */
 .follow-up-overlay {
   position: absolute;
-  bottom: 15%;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   z-index: 55;
   animation: follow-up-slide-in 0.5s ease-out;
 }
@@ -3668,11 +3668,11 @@ button.primary:disabled {
 @keyframes follow-up-slide-in {
   0% {
     opacity: 0;
-    transform: translateX(-50%) translateY(30px);
+    transform: translate(-50%, -50%) translateY(30px);
   }
   100% {
     opacity: 1;
-    transform: translateX(-50%) translateY(0);
+    transform: translate(-50%, -50%) translateY(0);
   }
 }
 
