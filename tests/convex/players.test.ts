@@ -2,7 +2,7 @@ import { convexTest } from "convex-test";
 import { expect, test, describe, vi, beforeEach, afterEach } from "vitest";
 import { api } from "../../convex/_generated/api";
 import schema from "../../convex/schema";
-import { PRESENCE_TIMEOUT_MS } from "../../convex/players";
+import { PRESENCE_TIMEOUT_MS } from "../../lib/constants";
 
 const modules = import.meta.glob("../../convex/**/*.ts");
 

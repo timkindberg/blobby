@@ -6,7 +6,7 @@ import { Timer } from "../components/Timer";
 import type { RopeClimbingState } from "../../lib/ropeTypes";
 import { ErrorMessage } from "../components/ErrorMessage";
 import { getFriendlyErrorMessage } from "../lib/errorMessages";
-import { PRESENCE_TIMEOUT_MS } from "../../convex/players";
+import { PRESENCE_TIMEOUT_MS } from "../../lib/constants";
 import { ConfirmationModal, useConfirmation } from "../components/ConfirmationModal";
 import { AIQuestionModal } from "../components/AIQuestionModal";
 import type { QuestionCategory } from "../../lib/sampleQuestions";

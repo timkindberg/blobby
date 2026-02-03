@@ -1,7 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { calculateElevationGain, SUMMIT } from "../lib/elevation";
-import { PRESENCE_TIMEOUT_MS } from "./players";
+import { PRESENCE_TIMEOUT_MS } from "../lib/constants";
 import type { Id } from "./_generated/dataModel";
 
 export const submit = mutation({

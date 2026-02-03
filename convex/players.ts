@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { PRESENCE_TIMEOUT_MS } from "../lib/constants";
 
 // Helper to check if a player is currently active based on heartbeat
 function isPlayerActive(player: { lastSeenAt?: number }): boolean {
@@ -112,9 +113,6 @@ export const heartbeat = mutation({
     await ctx.db.patch(args.playerId, { lastSeenAt: Date.now() });
   },
 });
-
-// Threshold for considering a player "active" (15 seconds)
-export const PRESENCE_TIMEOUT_MS = 15000;
 
 // Disconnect mutation - marks player as immediately inactive
 // Called via HTTP endpoint on page unload for instant disconnect detection
