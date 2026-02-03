@@ -187,11 +187,16 @@ export function Mountain({
   }, [mode, currentPlayerElevation, ropeClimbingState, currentPlayerId]);
 
   // Convert elevation to Y coordinate (higher elevation = lower Y)
+  // VISUAL CAP: Players can earn bonus elevation above 1000m for scoring,
+  // but their visual position is capped at the summit line.
   const elevationToY = (elevation: number): number => {
+    // Cap visual elevation at SUMMIT - internal elevation can exceed 1000m
+    // but the blob should never appear above the summit line
+    const visualElevation = Math.min(elevation, SUMMIT);
     const range = maxElevation - minElevation;
     const padding = 20;
     const usableHeight = height - padding * 2;
-    const normalized = (elevation - minElevation) / range;
+    const normalized = (visualElevation - minElevation) / range;
     return height - padding - normalized * usableHeight;
   };
 
@@ -869,10 +874,12 @@ function RopesOverlay({
         // Position based on last answer's column, or spread out if no previous answer
         let x: number;
         if (player.lastOptionIndex !== null && player.lastOptionIndex >= 0) {
-          // Player has a previous answer - use lastOptionIndex as a visual position hint
+          // Player has a previous answer - use lastOptionIndex to position them
           // (mod by ropeCount to handle different numbers of options between questions)
-          const visualPosition = player.lastOptionIndex % ropeCount;
-          x = getXForVisualPosition(visualPosition);
+          // IMPORTANT: lastOptionIndex is an ORIGINAL answer index, not a visual position!
+          // Use getXForOriginalIndex to correctly map through the shuffle order.
+          const originalIndex = player.lastOptionIndex % ropeCount;
+          x = getXForOriginalIndex(originalIndex);
         } else {
           // New player with no previous answer - spread evenly across available space
           // Position them between the ropes, using index for distribution
