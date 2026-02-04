@@ -1086,8 +1086,25 @@ const RopeClimbersGroup = memo(function RopeClimbersGroup({
         // No extra distance needed - just return to the starting elevation
         const fallDistance = -climbOffset;
 
-        // Calculate climb distance for correct answers (elevation gain visual)
-        const climbDistance = isCorrect === true ? 40 + playerIndex * 5 : 0;
+        // Calculate climb distance for correct answers based on actual elevation gain
+        // This makes the visual climb proportional to the scoring math
+        let climbDistance = 0;
+        if (isCorrect === true) {
+          if (player.elevationGain !== undefined && player.elevationGain > 0) {
+            // Convert elevation gain (meters) to visual climb distance (pixels)
+            // Y increases downward, so startY > endY when climbing up
+            const startY = elevationToYCapped(player.elevationAtAnswer);
+            const endY = elevationToYCapped(player.elevationAtAnswer + player.elevationGain);
+            climbDistance = startY - endY; // Positive = climbing up
+            // Add small offset per player for visual stacking
+            climbDistance += playerIndex * 3;
+            // Ensure minimum visible climb for feedback
+            climbDistance = Math.max(climbDistance, 15);
+          } else {
+            // Fallback if elevationGain not yet populated (shouldn't happen during celebrate)
+            climbDistance = 30 + playerIndex * 3;
+          }
+        }
 
         return (
           <RopeClimber
