@@ -9,7 +9,7 @@ import { useSoundManager } from "../hooks/useSoundManager";
 import type { SoundType } from "../lib/soundManager";
 import { usePlayerHeartbeat } from "../hooks/usePlayerHeartbeat";
 import { MuteToggle } from "../components/MuteToggle";
-import type { RopeClimbingState } from "../../lib/ropeTypes";
+import type { RopeClimbingState, PlayerRopeState } from "../../lib/ropeTypes";
 import { Blob } from "../components/Blob";
 import { generateBlob } from "../lib/blobGenerator";
 import { ErrorMessage } from "../components/ErrorMessage";
@@ -213,46 +213,63 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
     sessionId ? { sessionId } : "skip"
   );
 
-  // Rope climbing state for active question visualization
+  // Rope climbing state for active question visualization (Mountain component)
   // Placed before players query since we derive player data from it during gameplay
   const ropeClimbingState = useQuery(
     api.answers.getRopeClimbingState,
     sessionId ? { sessionId } : "skip"
   ) as RopeClimbingState | null | undefined;
 
-  // Only fetch full player list in lobby - during gameplay, derive from ropeClimbingState
-  // Always fetch players for accurate elevation display on Mountain
-  // TODO: Optimize with backend consolidation (Task #115) to add currentElevation to ropeClimbingState
+  // Lightweight player-specific rope state for UI logic
+  // Contains counts per rope and current player's answer status (not full player lists)
+  const playerRopeState = useQuery(
+    api.answers.getPlayerRopeState,
+    sessionId && playerId ? { sessionId, playerId } : "skip"
+  ) as PlayerRopeState | null | undefined;
+
+  // Fetch full player list for lobby (shows all other players) and player count tracking
+  // During active gameplay, we use getPlayerContext for the Mountain component instead
+  const isInLobby = session?.status === "lobby";
   const players = useQuery(
     api.players.listBySession,
-    sessionId ? { sessionId } : "skip"
+    sessionId && isInLobby ? { sessionId } : "skip"
+  );
+
+  // Optimized subscription for active gameplay - only fetches nearby players for Mountain
+  // This reduces data transfer when there are many players spread across the mountain
+  const playerContext = useQuery(
+    api.players.getPlayerContext,
+    sessionId && playerId && !isInLobby
+      ? { sessionId, playerId, elevationRange: 150 }
+      : "skip"
   );
 
   // Only fetch leaderboard when needed (results phase or game finished)
-  const questionPhaseFromState = ropeClimbingState?.questionPhase ?? null;
+  // Use playerRopeState for phase (lighter weight than ropeClimbingState)
+  // Uses getLeaderboardSummary for optimized data transfer (top 10 + current player only)
+  const questionPhaseFromState = playerRopeState?.phase ?? null;
   const needsLeaderboard = questionPhaseFromState === "results" || session?.status === "finished";
-  const leaderboard = useQuery(
-    api.players.getLeaderboard,
-    sessionId && needsLeaderboard ? { sessionId } : "skip"
+  const leaderboardSummary = useQuery(
+    api.players.getLeaderboardSummary,
+    sessionId && needsLeaderboard
+      ? { sessionId, playerId: playerId ?? undefined, limit: 10 }
+      : "skip"
   );
 
-  // Derived from ropeClimbingState - replaces separate hasAnswered subscription
+  // Derived from playerRopeState - lightweight player-specific data
   const hasAnswered = useMemo(() => {
-    if (!ropeClimbingState || !playerId) return false;
-    return ropeClimbingState.ropes.some(rope =>
-      rope.players.some(p => p.playerId === playerId)
-    );
-  }, [ropeClimbingState, playerId]);
+    return playerRopeState?.myAnswer.hasAnswered ?? false;
+  }, [playerRopeState]);
 
-  // Derived from ropeClimbingState - replaces separate timingInfo subscription
+  // Derived from playerRopeState - timing info for countdown display
   const timingInfo = useMemo(() => {
-    if (!ropeClimbingState) return null;
+    if (!playerRopeState) return null;
     return {
-      firstAnsweredAt: ropeClimbingState.timing.firstAnsweredAt,
-      timeLimit: ropeClimbingState.timing.timeLimit,
-      totalAnswers: ropeClimbingState.answeredCount,
+      firstAnsweredAt: playerRopeState.timing.firstAnsweredAt,
+      timeLimit: playerRopeState.timing.timeLimit,
+      totalAnswers: playerRopeState.answeredCount,
     };
-  }, [ropeClimbingState]);
+  }, [playerRopeState]);
 
   const submitAnswer = useMutation(api.answers.submit);
 
@@ -262,13 +279,14 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
   const prevRevealedQuestionRef = useRef<string | null>(null);
 
   // Calculate when this player's result should be revealed based on the snip sequence
+  // Uses playerRopeState for lightweight access to player's answer and rope correctness
   useEffect(() => {
-    if (!ropeClimbingState || !playerId || !currentQuestion) {
+    if (!playerRopeState || !currentQuestion) {
       return;
     }
 
     const questionId = currentQuestion._id;
-    const isRevealed = ropeClimbingState.timing.isRevealed;
+    const isRevealed = playerRopeState.timing.isRevealed;
 
     // Reset when question changes
     if (questionId !== prevRevealedQuestionRef.current) {
@@ -285,25 +303,21 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
       return;
     }
 
-    // Find which rope the player is on (if any)
-    const playerRopeIndex = ropeClimbingState.ropes.findIndex(
-      rope => rope.players.some(p => p.playerId === playerId)
-    );
+    // Use playerRopeState to check if player answered
+    const playerRopeIndex = playerRopeState.myAnswer.optionIndex;
 
     // If player didn't answer, reveal immediately
-    if (playerRopeIndex === -1) {
+    if (playerRopeIndex === null) {
       setPlayerResultRevealed(true);
       return;
     }
 
-    const playerRope = ropeClimbingState.ropes[playerRopeIndex];
-    const isCorrect = playerRope?.isCorrect === true;
+    const isCorrect = playerRopeState.myAnswer.isCorrect === true;
 
     // Get wrong rope indices and shuffle them with the same seed as Mountain.tsx
-    const wrongRopeIndices = ropeClimbingState.ropes
-      .map((rope, i) => ({ rope, index: i }))
-      .filter(({ rope }) => rope.isCorrect === false)
-      .map(({ index }) => index);
+    const wrongRopeIndices = playerRopeState.ropes
+      .filter(rope => rope.isCorrect === false)
+      .map(rope => rope.optionIndex);
 
     const seed = hashString(questionId);
     const shuffledWrongRopes = shuffleWithSeed(wrongRopeIndices, seed);
@@ -353,7 +367,7 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
         revealTimerRef.current = null;
       }
     };
-  }, [ropeClimbingState, playerId, currentQuestion, playerResultRevealed]);
+  }, [playerRopeState, currentQuestion, playerResultRevealed]);
 
   // Track if timer has expired locally
   const [timerExpired, setTimerExpired] = useState(false);
@@ -499,8 +513,9 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
   }
 
   // Play reveal sounds when player's result is revealed (synced with scissors animation)
+  // Uses playerRopeState for lightweight access to player's answer result
   useEffect(() => {
-    if (!ropeClimbingState || !playerId || !currentQuestion) return;
+    if (!playerRopeState || !currentQuestion) return;
 
     const questionId = currentQuestion._id;
 
@@ -508,15 +523,10 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
     if (playerResultRevealed && hasPlayedRevealSoundsRef.current !== questionId) {
       hasPlayedRevealSoundsRef.current = questionId;
 
-      // Find if this player answered and if they were correct
-      const playerRopeIndex = ropeClimbingState.ropes.findIndex(
-        rope => rope.players.some(p => p.playerId === playerId)
-      );
-      const didAnswer = playerRopeIndex !== -1;
+      const didAnswer = playerRopeState.myAnswer.hasAnswered;
 
       if (didAnswer) {
-        const playerRope = ropeClimbingState.ropes[playerRopeIndex];
-        const isCorrect = playerRope?.isCorrect === true;
+        const isCorrect = playerRopeState.myAnswer.isCorrect === true;
 
         if (isCorrect) {
           // Play happy sound for correct answer
@@ -535,7 +545,7 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
     if (!playerResultRevealed) {
       hasPlayedRevealSoundsRef.current = null;
     }
-  }, [ropeClimbingState, currentQuestion?._id, playerId, play, playerResultRevealed]);
+  }, [playerRopeState, currentQuestion?._id, play, playerResultRevealed]);
 
   // Play pop/giggle sounds when new players join the lobby
   useEffect(() => {
@@ -555,7 +565,8 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
   }, [players?.length, play]);
 
   // Play sound when a new question is shown (transition TO question_shown phase)
-  const currentQuestionPhase = ropeClimbingState?.questionPhase ?? null;
+  // Uses playerRopeState for lightweight phase tracking
+  const currentQuestionPhase = playerRopeState?.phase ?? null;
   useEffect(() => {
     const prevPhase = prevQuestionPhaseRef.current;
 
@@ -696,18 +707,26 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
 
   // Game finished - show final results
   if (session?.status === "finished") {
+    // Build players array for Leaderboard component from summary data
+    // If current player is outside top 10, they'll be shown separately by Leaderboard
+    const leaderboardPlayers = leaderboardSummary?.top ?? [];
+
     return (
       <div className="player-view">
         <h2>Game Over!</h2>
         <p>Your elevation: {player?.elevation ?? 0}m</p>
+        {leaderboardSummary && leaderboardSummary.currentRank && leaderboardSummary.currentRank > 10 && (
+          <p className="rank-info">
+            You finished #{leaderboardSummary.currentRank} of {leaderboardSummary.totalPlayers} players
+          </p>
+        )}
         <h3>Leaderboard</h3>
-        <ol>
-          {leaderboard?.map((p) => (
-            <li key={p._id} className={p._id === playerId ? "you" : ""}>
-              {p.name}: {p.elevation}m {p.elevation >= 1000 ? "⛰️ Summit!" : ""}
-            </li>
-          ))}
-        </ol>
+        <Leaderboard
+          players={leaderboardPlayers}
+          maxDisplay={10}
+          currentPlayerId={playerId ?? undefined}
+          className="leaderboard-light"
+        />
         <button onClick={onBack}>Back to Home</button>
       </div>
     );
@@ -785,7 +804,8 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
   }
 
   // Game active - show current question
-  const questionPhase = ropeClimbingState?.questionPhase ?? "answers_shown";
+  // Use playerRopeState for phase (lightweight query)
+  const questionPhase = playerRopeState?.phase ?? "answers_shown";
 
   return (
     <div className="player-view">
@@ -803,16 +823,16 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
         <MuteToggle size={32} />
       </div>
 
-      {/* Mountain visualization - shows player's position */}
-      {players && players.length > 0 && playerId && (
+      {/* Mountain visualization - shows player's position using nearby players only */}
+      {playerContext && playerContext.nearbyPlayers.length > 0 && playerId && (
         <Mountain
-          players={players.map((p) => ({
+          players={playerContext.nearbyPlayers.map((p) => ({
             id: p._id,
             name: p.name,
             elevation: p.elevation,
           }))}
           mode="player"
-          currentPlayerElevation={player?.elevation ?? 0}
+          currentPlayerElevation={playerContext.currentPlayer?.elevation ?? 0}
           currentPlayerId={playerId}
           width={320}
           height={250}
@@ -833,7 +853,7 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
               </div>
             )}
             <p className="player-pregame-players">
-              {players?.length ?? 0} climber{(players?.length ?? 0) !== 1 ? 's' : ''} ready
+              {playerContext?.totalPlayers ?? 0} climber{(playerContext?.totalPlayers ?? 0) !== 1 ? 's' : ''} ready
             </p>
           </div>
         </div>
@@ -847,10 +867,10 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
                 timeLimit={currentQuestion.timeLimit}
                 onExpire={() => setTimerExpired(true)}
                 size="medium"
-                isRevealed={ropeClimbingState?.timing.isRevealed ?? false}
-                correctAnswer={ropeClimbingState?.ropes.find(r => r.isCorrect === true)?.optionText}
-                correctCount={ropeClimbingState?.ropes.find(r => r.isCorrect === true)?.players.length}
-                totalAnswered={ropeClimbingState?.answeredCount}
+                isRevealed={playerRopeState?.timing.isRevealed ?? false}
+                correctAnswer={playerRopeState?.ropes.find(r => r.isCorrect === true)?.optionText}
+                correctCount={playerRopeState?.ropes.find(r => r.isCorrect === true)?.playerCount}
+                totalAnswered={playerRopeState?.answeredCount}
               />
             </div>
           )}
@@ -893,20 +913,12 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
           )}
 
           {/* Phase: revealed - show answer feedback with all options (shuffled order) */}
-          {questionPhase === "revealed" && ropeClimbingState && (() => {
-            // Find which original option index the player selected and get their data
-            let playerElevationGain: number | undefined;
-            const playerSelectedOriginalIndex = ropeClimbingState.ropes.findIndex(
-              rope => {
-                const found = rope.players.find(p => p.playerId === playerId);
-                if (found) playerElevationGain = found.elevationGain;
-                return !!found;
-              }
-            );
-            const correctOriginalIndex = ropeClimbingState.ropes.findIndex(r => r.isCorrect === true);
-            const isCorrect = playerSelectedOriginalIndex === correctOriginalIndex && playerSelectedOriginalIndex !== -1;
-            const didAnswer = playerSelectedOriginalIndex !== -1;
-            const elevationGain = playerElevationGain ?? 0;
+          {questionPhase === "revealed" && playerRopeState && (() => {
+            // Use playerRopeState for lightweight access to player's answer data
+            const playerSelectedOriginalIndex = playerRopeState.myAnswer.optionIndex;
+            const isCorrect = playerRopeState.myAnswer.isCorrect === true;
+            const didAnswer = playerRopeState.myAnswer.hasAnswered;
+            const elevationGain = playerRopeState.myAnswer.elevationGain ?? 0;
 
             // Use shuffled options for display (same order as when answering)
             const optionsToDisplay = shuffledAnswers
@@ -952,7 +964,7 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
                   <div className="options revealed">
                     {optionsToDisplay.map((item, visualIndex) => {
                       const originalIndex = item.originalIndex;
-                      const rope = ropeClimbingState.ropes[originalIndex];
+                      const rope = playerRopeState.ropes[originalIndex];
                       const isThisCorrect = rope?.isCorrect === true;
                       const isPlayerSelection = originalIndex === playerSelectedOriginalIndex;
 
@@ -986,11 +998,16 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
           })()}
 
           {/* Phase: results - show leaderboard with player's position */}
-          {questionPhase === "results" && leaderboard && (
+          {questionPhase === "results" && leaderboardSummary && (
             <div className="results-leaderboard">
               <h3>Leaderboard</h3>
+              {leaderboardSummary.currentRank && leaderboardSummary.currentRank > 5 && (
+                <p className="rank-info compact">
+                  You are #{leaderboardSummary.currentRank} of {leaderboardSummary.totalPlayers}
+                </p>
+              )}
               <Leaderboard
-                players={leaderboard}
+                players={leaderboardSummary.top}
                 maxDisplay={5}
                 currentPlayerId={playerId ?? undefined}
                 compact

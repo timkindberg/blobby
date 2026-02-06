@@ -8,7 +8,7 @@ import {
   getTotalQuestionCount,
   type QuestionCategory,
 } from "./sampleQuestions";
-import { calculateElevationGain, calculateDynamicMax, SUMMIT } from "../lib/elevation";
+import { calculateElevationGain, SUMMIT, DEFAULT_SUMMIT_THRESHOLD } from "../lib/elevation";
 
 // Validator for question categories
 const categoryValidator = v.union(
@@ -42,6 +42,7 @@ export const create = mutation({
     hostId: v.string(),
     categories: v.optional(v.array(categoryValidator)),
     questionCount: v.optional(v.number()),
+    summitThreshold: v.optional(v.number()), // 0-1, percentage of correct answers needed to summit
   },
   handler: async (ctx, args) => {
     // Generate unique code
@@ -69,6 +70,7 @@ export const create = mutation({
       secretToken,
       status: "lobby",
       currentQuestionIndex: -1,
+      summitThreshold: args.summitThreshold, // Will be undefined if not provided (defaults to 0.75)
       createdAt: Date.now(),
     });
 
@@ -289,7 +291,9 @@ export const showAnswers = mutation({
 });
 
 // Transition to revealed phase (manual host trigger to show correct answer)
-// This is when we calculate final scores including minority bonus
+// This is when we calculate final scores using simplified scoring:
+// - Base elevation = SUMMIT / (totalQuestions * summitThreshold)
+// - First-answerer bonus = top 20% of correct answerers get linear bonus from 20% bonus pool
 export const revealAnswer = mutation({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, args) => {
@@ -319,87 +323,61 @@ export const revealAnswer = mutation({
       .withIndex("by_question", (q) => q.eq("questionId", question._id))
       .collect();
 
-    // Calculate answer distribution for minority bonus
-    const totalAnswered = answers.length;
-    const answerCounts = new Map<number, number>();
-
-    for (const answer of answers) {
-      const count = answerCounts.get(answer.optionIndex) ?? 0;
-      answerCounts.set(answer.optionIndex, count + 1);
-    }
-
-    // Find the first answer timestamp for calculating response times
-    const firstAnsweredAt = answers.length > 0
-      ? Math.min(...answers.map((a) => a.answeredAt))
-      : 0;
-
-    // Calculate scores (before applying dynamic cap)
-    const scoringResults = new Map<string, { baseScore: number; minorityBonus: number; total: number; isCorrect: boolean }>();
-
-    for (const answer of answers) {
-      const isCorrect = question.correctOptionIndex !== undefined
-        ? answer.optionIndex === question.correctOptionIndex
-        : true; // Poll mode - all answers are "correct"
-
-      if (isCorrect) {
-        const answerTime = answer.answeredAt - firstAnsweredAt;
-        const playersOnMyLadder = answerCounts.get(answer.optionIndex) ?? 1;
-        const scoring = calculateElevationGain(answerTime, playersOnMyLadder, totalAnswered, enabledQuestions.length);
-        scoringResults.set(answer._id, { ...scoring, isCorrect: true });
-      } else {
-        scoringResults.set(answer._id, { baseScore: 0, minorityBonus: 0, total: 0, isCorrect: false });
-      }
-    }
-
-    // Calculate dynamic max elevation cap BEFORE applying gains
-    // This ensures we cap based on current state, not future state
-    const questionsRemaining = enabledQuestions.length - session.currentQuestionIndex - 1;
-
-    // Get all players for this session
+    // Get all players for this session (for total player count)
     const players = await ctx.db
       .query("players")
       .withIndex("by_session", (q) => q.eq("sessionId", args.sessionId))
       .collect();
 
-    // Find the leading NON-SUMMITED player (exclude players at or above 1000m)
-    const nonSummitedPlayers = players.filter((p) => p.elevation < SUMMIT);
-    const leaderElevation = nonSummitedPlayers.length > 0
-      ? Math.max(...nonSummitedPlayers.map((p) => p.elevation))
-      : 0;
+    const totalPlayers = players.length;
+    const totalQuestions = enabledQuestions.length;
+    const summitThreshold = session.summitThreshold ?? DEFAULT_SUMMIT_THRESHOLD;
 
-    const dynamicMax = calculateDynamicMax(leaderElevation, questionsRemaining);
+    // Identify correct answers and sort by answer time
+    const correctAnswers = answers
+      .filter((a) => {
+        const isCorrect = question.correctOptionIndex !== undefined
+          ? a.optionIndex === question.correctOptionIndex
+          : true; // Poll mode - all answers are "correct"
+        return isCorrect;
+      })
+      .sort((a, b) => a.answeredAt - b.answeredAt);
 
-    // Store dynamic max on the question for debugging
-    await ctx.db.patch(question._id, {
-      dynamicMaxElevation: dynamicMax,
+    // Create a map of answer position for correct answers (1-indexed)
+    const answerPositions = new Map<string, number>();
+    correctAnswers.forEach((a, index) => {
+      answerPositions.set(a._id, index + 1);
     });
 
     // Track players who will summit this turn
     const newSummiters: { playerId: typeof answers[0]["playerId"]; finalElevation: number }[] = [];
 
-    // Apply scores with dynamic cap (but summiters are uncapped for bonus elevation)
+    // Calculate and apply scores
     for (const answer of answers) {
-      const scoring = scoringResults.get(answer._id);
-      if (!scoring) continue;
+      const isCorrect = question.correctOptionIndex !== undefined
+        ? answer.optionIndex === question.correctOptionIndex
+        : true; // Poll mode
 
-      if (scoring.isCorrect) {
-        const currentElevation = answer.elevationAtAnswer;
-        const wasAlreadySummited = currentElevation >= SUMMIT;
-
-        // Summiters are uncapped for bonus elevation, non-summiters get capped
-        const cappedGain = wasAlreadySummited
-          ? scoring.total // Already summited - no cap, earn bonus
-          : Math.min(scoring.total, dynamicMax); // Not yet summited - apply cap
+      if (isCorrect) {
+        const answerPosition = answerPositions.get(answer._id) ?? 1;
+        const scoring = calculateElevationGain(
+          true,
+          answerPosition,
+          totalPlayers,
+          totalQuestions,
+          summitThreshold
+        );
 
         // Update the answer record with scoring details
         await ctx.db.patch(answer._id, {
-          baseScore: scoring.baseScore,
-          minorityBonus: scoring.minorityBonus,
-          elevationGain: cappedGain,
+          baseScore: scoring.base,
+          speedBonus: scoring.bonus,
+          elevationGain: scoring.total,
         });
 
-        // Update player elevation - NO LONGER CAPPED at SUMMIT
-        const newElevation = currentElevation + cappedGain;
+        // Update player elevation
+        const currentElevation = answer.elevationAtAnswer;
+        const newElevation = currentElevation + scoring.total;
 
         await ctx.db.patch(answer.playerId, {
           elevation: newElevation,
@@ -413,7 +391,7 @@ export const revealAnswer = mutation({
         // Wrong answer - no elevation gain
         await ctx.db.patch(answer._id, {
           baseScore: 0,
-          minorityBonus: 0,
+          speedBonus: 0,
           elevationGain: 0,
         });
       }
@@ -677,5 +655,29 @@ export const getCategoryInfo = query({
       counts: getQuestionCountByCategory(),
       total: getTotalQuestionCount(),
     };
+  },
+});
+
+// Update summit threshold for a session (only in lobby)
+export const updateSummitThreshold = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    summitThreshold: v.number(), // 0-1, percentage of correct answers needed to summit
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) throw new Error("Session not found");
+    if (session.status !== "lobby") {
+      throw new Error("Can only change summit threshold in lobby");
+    }
+
+    // Validate threshold is between 0.5 and 1.0
+    if (args.summitThreshold < 0.5 || args.summitThreshold > 1.0) {
+      throw new Error("Summit threshold must be between 0.5 and 1.0");
+    }
+
+    await ctx.db.patch(args.sessionId, {
+      summitThreshold: args.summitThreshold,
+    });
   },
 });

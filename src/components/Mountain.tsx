@@ -5,7 +5,6 @@ import { SUMMIT } from "../../lib/elevation";
 import { Rope, RopeClimber, type RopePlayer, type RopeRevealState, type ClimberRevealState, type RevealPhase } from "./Rope";
 import type { RopeClimbingState, RopeData, QuestionPhase } from "../../lib/ropeTypes";
 import { playSound } from "../lib/soundManager";
-import { hashString, shuffleWithSeed } from "../../lib/shuffle";
 
 export interface MountainPlayer {
   id: string;
@@ -556,20 +555,24 @@ function RopesOverlay({
   }, [questionPhase]);
 
   // Get indices of ALL wrong ropes (snip all wrong ladders, not just ones with players)
-  const wrongRopeIndices = useMemo(() => {
+  // Sorted by player count (ascending) so least populated ropes are snipped first
+  // This creates more dramatic tension by snipping the most populated wrong rope last
+  const sortedWrongRopesByPopulation = useMemo(() => {
     return ropes
       .map((rope, i) => ({ rope, index: i }))
       .filter(({ rope }) => rope.isCorrect === false)
+      .sort((a, b) => {
+        // Sort by player count ascending (least populated first)
+        const countA = a.rope.players.length;
+        const countB = b.rope.players.length;
+        if (countA !== countB) {
+          return countA - countB;
+        }
+        // Tie-breaker: use deterministic order based on index for consistency across clients
+        return a.index - b.index;
+      })
       .map(({ index }) => index);
   }, [ropes]);
-
-  // Deterministic snip order based on question ID (same order for all clients)
-  const shuffledWrongRopes = useMemo(() => {
-    if (wrongRopeIndices.length === 0) return [];
-    // Use question ID as seed for deterministic shuffle
-    const seed = hashString(ropeClimbingState.question.id);
-    return shuffleWithSeed(wrongRopeIndices, seed);
-  }, [wrongRopeIndices, ropeClimbingState.question.id]);
 
   // Orchestrate the reveal sequence
   useEffect(() => {
@@ -598,7 +601,7 @@ function RopesOverlay({
       // PHASE 3: Start snipping sequence (after 1500ms tension pause)
       // Using a chain of promises to ensure truly sequential timing
       const snipStartTimer = setTimeout(async () => {
-        if (shuffledWrongRopes.length === 0) {
+        if (sortedWrongRopesByPopulation.length === 0) {
           // No wrong ropes to snip - go straight to complete
           setRevealPhase("complete");
           // Play celebration for correct answers
@@ -624,11 +627,11 @@ function RopesOverlay({
             setTimeout(() => playSound("scissorsSafe"), 100);
           }
 
-          // Snip wrong ropes one at a time in RANDOM order, truly sequentially using async/await
+          // Snip wrong ropes one at a time, sorted by population (least first), truly sequentially using async/await
           const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-          for (let i = 0; i < shuffledWrongRopes.length; i++) {
-            const ropeIndex = shuffledWrongRopes[i];
+          for (let i = 0; i < sortedWrongRopesByPopulation.length; i++) {
+            const ropeIndex = sortedWrongRopesByPopulation[i];
             if (ropeIndex === undefined) continue;
 
             // Play snip sound
@@ -650,7 +653,7 @@ function RopesOverlay({
 
             // Wait before the next snip (800ms between each snip for dramatic pacing)
             // But don't wait after the last one
-            if (i < shuffledWrongRopes.length - 1) {
+            if (i < sortedWrongRopesByPopulation.length - 1) {
               await delay(800);
             }
           }
@@ -681,7 +684,7 @@ function RopesOverlay({
     }
 
     prevIsRevealedRef.current = isRevealed;
-  }, [isRevealed, ropeClimbingState.question.id, shuffledWrongRopes, ropes]);
+  }, [isRevealed, ropeClimbingState.question.id, sortedWrongRopesByPopulation, ropes]);
 
   // Calculate rope positions - evenly spaced across the width
   const ropeCount = ropes.length;

@@ -254,6 +254,14 @@ export function HostView({ onBack }: Props) {
         </ul>
       </section>
 
+      {/* Summit Threshold Control - only in lobby */}
+      {session.status === "lobby" && (
+        <SummitThresholdControl
+          sessionId={sessionId}
+          currentThreshold={session.summitThreshold ?? 0.75}
+        />
+      )}
+
       <section className="controls">
         {session.status === "lobby" && (
           <button
@@ -573,5 +581,56 @@ function AddQuestionForm({ sessionId }: { sessionId: Id<"sessions"> }) {
       </button>
       <button type="submit">Add Question</button>
     </form>
+  );
+}
+
+// Summit threshold options (percentage of correct answers needed to summit)
+const THRESHOLD_OPTIONS = [
+  { value: 0.50, label: "50% (Easy)" },
+  { value: 0.60, label: "60%" },
+  { value: 0.75, label: "75% (Default)" },
+  { value: 0.80, label: "80%" },
+  { value: 0.90, label: "90%" },
+  { value: 1.00, label: "100% (Hard)" },
+];
+
+function SummitThresholdControl({
+  sessionId,
+  currentThreshold,
+}: {
+  sessionId: Id<"sessions">;
+  currentThreshold: number;
+}) {
+  const updateThreshold = useMutation(api.sessions.updateSummitThreshold);
+
+  async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const newThreshold = parseFloat(e.target.value);
+    await updateThreshold({ sessionId, summitThreshold: newThreshold });
+  }
+
+  return (
+    <section className="summit-threshold-control">
+      <h3>Difficulty Settings</h3>
+      <div className="threshold-row">
+        <label htmlFor="summit-threshold">
+          Correct answers needed to summit:
+        </label>
+        <select
+          id="summit-threshold"
+          value={currentThreshold}
+          onChange={handleChange}
+        >
+          {THRESHOLD_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p className="threshold-hint">
+        With {THRESHOLD_OPTIONS.find(o => o.value === currentThreshold)?.label ?? "75%"} threshold,
+        players need that percentage of correct answers to reach the summit.
+      </p>
+    </section>
   );
 }

@@ -313,12 +313,13 @@ describe("Full Session Integration", () => {
     const p1 = await t.query(api.players.get, { playerId: playerIds[0]! });
     const p2 = await t.query(api.players.get, { playerId: playerIds[1]! });
 
-    // First player gets scaled elevation based on question count (capped by dynamic cap of 175m)
-    expect(p1?.elevation).toBeGreaterThan(0);
-    expect(p1?.elevation).toBeLessThanOrEqual(175);
+    // With 1 question and 75% threshold: base = 1000 / (1 * 0.75) = 1333m
+    // First player gets base + speed bonus (top 20% of 2 = 1 player gets bonus)
+    expect(p1?.elevation).toBeGreaterThan(1000);
 
-    // Second player also gets elevation (within grace period in tests)
-    expect(p2?.elevation).toBeGreaterThan(0);
+    // Second player gets base only (no bonus since they're not in top 20%)
+    // With 2 players, only 1 (top 20% = 0.4, ceiling = 1) gets bonus
+    expect(p2?.elevation).toBeGreaterThan(1000);
     expect(p2?.elevation).toBeLessThanOrEqual(p1?.elevation ?? 0);
   });
 

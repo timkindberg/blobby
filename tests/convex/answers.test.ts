@@ -227,10 +227,9 @@ describe("answers.submit", () => {
 
     // Check elevation on player record - poll mode gives participation points
     const player = await t.query(api.players.get, { playerId });
-    // In poll mode, all answers are "correct" so they get elevation based on scaled scoring
-    // With 1 question: maxPerQuestion = 1000 / 0.75 = 1333m (but capped by dynamic cap of 175m)
-    expect(player?.elevation).toBeGreaterThan(0);
-    expect(player?.elevation).toBeLessThanOrEqual(175); // Dynamic cap
+    // In poll mode, all answers are "correct" so they get elevation
+    // With 1 question and 75% threshold: base = 1000 / (1 * 0.75) = 1333m + speed bonus
+    expect(player?.elevation).toBeGreaterThan(1000);
   });
 
   test("elevation accumulates across multiple correct answers", async () => {

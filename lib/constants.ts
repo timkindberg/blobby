@@ -6,5 +6,6 @@
 /**
  * How long before a player is considered disconnected (in milliseconds)
  * Used for presence heartbeat system
+ * Should be at least 2x the heartbeat interval to allow for network delays
  */
-export const PRESENCE_TIMEOUT_MS = 15000;
+export const PRESENCE_TIMEOUT_MS = 60000;

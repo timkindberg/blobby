@@ -234,7 +234,7 @@ export interface PlayerOnRope {
   playerName: string;
   elevationAtAnswer: number; // Where they grabbed the rope
   answeredAt: number; // For ordering on the rope
-  elevationGain?: number; // Populated after reveal (base score + minority bonus, possibly capped)
+  elevationGain?: number; // Populated after reveal (base + speed bonus)
 }
 
 /**
@@ -484,6 +484,128 @@ export const getRopeClimbingState = query({
       totalPlayers,
       activePlayerCount,
       answeredCount,
+    };
+  },
+});
+
+/**
+ * Lightweight player-specific rope state for the PlayerView.
+ * Returns only what a single player needs during rope climbing:
+ * - Question info (id, text, options, timeLimit)
+ * - Player counts per rope (not full player lists)
+ * - Current player's answer status and result
+ * - Phase and timing info
+ */
+export const getPlayerRopeState = query({
+  args: {
+    sessionId: v.id("sessions"),
+    playerId: v.id("players"),
+  },
+  handler: async (ctx, { sessionId, playerId }) => {
+    const session = await ctx.db.get(sessionId);
+    if (!session) return null;
+    if (session.currentQuestionIndex < 0) return null;
+
+    // Get the current question
+    const questions = await ctx.db
+      .query("questions")
+      .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+      .collect();
+
+    const enabledQuestions = questions
+      .filter((q) => q.enabled !== false)
+      .sort((a, b) => a.order - b.order);
+
+    const question = enabledQuestions[session.currentQuestionIndex];
+    if (!question) return null;
+
+    // Get all answers for this question
+    const answers = await ctx.db
+      .query("answers")
+      .withIndex("by_question", (q) => q.eq("questionId", question._id))
+      .collect();
+
+    // Get the question phase from the session
+    const questionPhase = (session.questionPhase ?? "answers_shown") as QuestionPhase;
+    const isRevealed = questionPhase === "revealed" || questionPhase === "results";
+
+    // Calculate timing
+    const firstAnsweredAt =
+      questionPhase !== "question_shown" && answers.length > 0
+        ? Math.min(...answers.map((a) => a.answeredAt))
+        : null;
+
+    const now = Date.now();
+    const isExpired =
+      firstAnsweredAt !== null &&
+      now - firstAnsweredAt >= question.timeLimit * 1000;
+
+    // Count players per rope (answer option)
+    const ropeCounts: number[] = question.options.map(() => 0);
+    for (const answer of answers) {
+      if (answer.optionIndex >= 0 && answer.optionIndex < ropeCounts.length) {
+        ropeCounts[answer.optionIndex]!++;
+      }
+    }
+
+    // Find the current player's answer
+    const myAnswerDoc = answers.find((a) => a.playerId === playerId);
+    const hasAnswered = !!myAnswerDoc;
+
+    // Calculate player's position in answer order (if they answered)
+    let position: number | null = null;
+    if (myAnswerDoc) {
+      const sortedAnswers = [...answers].sort((a, b) => a.answeredAt - b.answeredAt);
+      position = sortedAnswers.findIndex((a) => a.playerId === playerId) + 1;
+    }
+
+    // Determine if player's answer was correct (only after reveal)
+    let myIsCorrect: boolean | null = null;
+    if (isRevealed && hasAnswered && question.correctOptionIndex !== undefined) {
+      myIsCorrect = myAnswerDoc.optionIndex === question.correctOptionIndex;
+    }
+
+    // Get total player count
+    const playerCount = await ctx.db
+      .query("players")
+      .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+      .collect();
+
+    // Build rope data with counts
+    const ropes = question.options.map((option, index) => ({
+      optionIndex: index,
+      optionText: option.text,
+      playerCount: ropeCounts[index] ?? 0,
+      isCorrect:
+        question.correctOptionIndex !== undefined
+          ? index === question.correctOptionIndex
+          : null,
+    }));
+
+    return {
+      question: {
+        id: question._id,
+        text: question.text,
+        options: question.options,
+        timeLimit: question.timeLimit,
+      },
+      ropes,
+      myAnswer: {
+        hasAnswered,
+        optionIndex: myAnswerDoc?.optionIndex ?? null,
+        isCorrect: myIsCorrect,
+        position,
+        elevationGain: myAnswerDoc?.elevationGain ?? null,
+      },
+      phase: questionPhase,
+      timing: {
+        firstAnsweredAt,
+        timeLimit: question.timeLimit,
+        isExpired,
+        isRevealed,
+      },
+      answeredCount: answers.length,
+      totalPlayers: playerCount.length,
     };
   },
 });

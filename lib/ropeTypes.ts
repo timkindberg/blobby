@@ -84,3 +84,54 @@ export interface RopeClimbingState {
   /** Number of players who have answered */
   answeredCount: number;
 }
+
+/**
+ * Lightweight player-specific rope state for the PlayerView.
+ * Contains only the data a single player needs during rope climbing:
+ * - Question info (id, text, options, timeLimit)
+ * - Player counts per rope (not full player list)
+ * - Current player's answer status and result
+ * - Phase and timing info
+ */
+export interface PlayerRopeState {
+  /** The current question being displayed */
+  question: {
+    id: Id<"questions">;
+    text: string;
+    options: { text: string }[];
+    timeLimit: number;
+  };
+  /** Summarized rope data - counts instead of full player lists */
+  ropes: {
+    optionIndex: number;
+    optionText: string;
+    playerCount: number;
+    /** Whether this is the correct answer (null until revealed) */
+    isCorrect: boolean | null;
+  }[];
+  /** Current player's answer status */
+  myAnswer: {
+    hasAnswered: boolean;
+    /** Which option index the player selected (null if not answered) */
+    optionIndex: number | null;
+    /** Whether the player's answer was correct (null until revealed) */
+    isCorrect: boolean | null;
+    /** Player's position in answer order (1 = first, for bonus calculation) */
+    position: number | null;
+    /** Elevation gain from this answer (populated after reveal) */
+    elevationGain: number | null;
+  };
+  /** Current phase of the question flow */
+  phase: QuestionPhase;
+  /** Timing info for the countdown */
+  timing: {
+    firstAnsweredAt: number | null;
+    timeLimit: number;
+    isExpired: boolean;
+    isRevealed: boolean;
+  };
+  /** Total number of players who have answered this question */
+  answeredCount: number;
+  /** Total number of players in the session */
+  totalPlayers: number;
+}

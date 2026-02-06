@@ -1,10 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 
-// Heartbeat interval - send every 5 seconds
-const HEARTBEAT_INTERVAL_MS = 5000;
+// Heartbeat interval - send every 30 seconds (reduced from 5s to minimize function calls)
+const HEARTBEAT_INTERVAL_MS = 30000;
 
 /**
  * Get the Convex site URL for HTTP endpoints.
@@ -23,32 +23,73 @@ function getConvexSiteUrl(): string {
 
 /**
  * Hook that sends periodic heartbeats to track player presence.
- * When the player's tab is open, heartbeats are sent every 5 seconds.
+ * When the player's tab is open and visible, heartbeats are sent every 30 seconds.
+ * When the tab is hidden, heartbeats are paused to save resources.
  * When the tab is closed (or component unmounts), heartbeats stop.
  *
  * Also sets up unload listeners for immediate disconnect detection
  * when the player closes their tab or navigates away.
  *
- * The backend considers a player "active" if their lastSeenAt is within 15 seconds.
+ * The backend considers a player "active" if their lastSeenAt is within 60 seconds.
  */
 export function usePlayerHeartbeat(playerId: Id<"players"> | null) {
   const heartbeat = useMutation(api.players.heartbeat);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Periodic heartbeat effect
+  // Memoize the heartbeat sender to avoid recreating on every render
+  const sendHeartbeat = useCallback(() => {
+    if (playerId) {
+      heartbeat({ playerId });
+    }
+  }, [playerId, heartbeat]);
+
+  // Start heartbeat interval
+  const startHeartbeat = useCallback(() => {
+    // Clear any existing interval first
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+    // Send immediately when starting/resuming
+    sendHeartbeat();
+    // Then send every 30 seconds
+    intervalRef.current = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+  }, [sendHeartbeat]);
+
+  // Stop heartbeat interval
+  const stopHeartbeat = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
+
+  // Periodic heartbeat effect with visibility API optimization
   useEffect(() => {
     if (!playerId) return;
 
-    // Send heartbeat immediately on mount
-    heartbeat({ playerId });
+    // Handle visibility changes - pause heartbeat when tab is hidden
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopHeartbeat();
+      } else {
+        startHeartbeat();
+      }
+    };
 
-    // Then send every 5 seconds
-    const interval = setInterval(() => {
-      heartbeat({ playerId });
-    }, HEARTBEAT_INTERVAL_MS);
+    // Start heartbeat if tab is visible
+    if (!document.hidden) {
+      startHeartbeat();
+    }
 
-    // Clean up interval when component unmounts or playerId changes
-    return () => clearInterval(interval);
-  }, [playerId, heartbeat]);
+    // Listen for visibility changes
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Clean up on unmount
+    return () => {
+      stopHeartbeat();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [playerId, startHeartbeat, stopHeartbeat]);
 
   // Unload listener effect for immediate disconnect detection
   useEffect(() => {

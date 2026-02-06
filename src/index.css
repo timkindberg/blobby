@@ -431,6 +431,56 @@ li.you {
   flex-wrap: wrap;
 }
 
+/* Summit Threshold Control */
+.summit-threshold-control {
+  margin: 24px 0;
+  padding: 16px;
+  background: #f0f9ff;
+  border-radius: 8px;
+  border: 1px solid #bae6fd;
+}
+
+.summit-threshold-control h3 {
+  margin: 0 0 12px 0;
+  font-size: 1rem;
+  color: #0369a1;
+}
+
+.threshold-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.threshold-row label {
+  font-weight: 500;
+  color: #334155;
+}
+
+.threshold-row select {
+  padding: 8px 12px;
+  font-size: 1rem;
+  border: 2px solid #0ea5e9;
+  border-radius: 6px;
+  background: white;
+  color: #0369a1;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.threshold-row select:focus {
+  outline: none;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.2);
+}
+
+.threshold-hint {
+  margin: 8px 0 0 0;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
 /* Blob Animations */
 @keyframes blob-idle {
   0%, 100% { transform: translateY(0) scaleY(1); }
@@ -3687,6 +3737,23 @@ button.primary:disabled {
 
 .results-leaderboard .leaderboard {
   max-width: 100%;
+}
+
+/* Rank info message - shown when player is outside displayed leaderboard range */
+.rank-info {
+  text-align: center;
+  color: #64748b;
+  font-size: 0.95rem;
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: #f1f5f9;
+  border-radius: 6px;
+}
+
+.rank-info.compact {
+  font-size: 0.85rem;
+  padding: 6px 10px;
+  margin: 0 0 8px 0;
 }
 
 /* Follow-up text overlay (shown after reveal animations complete) */

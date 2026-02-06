@@ -18,6 +18,7 @@ export default defineSchema({
       v.literal("revealed"),        // Correct answer revealed (manual host trigger)
       v.literal("results")          // Results screen showing stats
     )),
+    summitThreshold: v.optional(v.number()), // Percentage of correct answers needed to summit (0-1, default 0.75)
     createdAt: v.number(),
   })
     .index("by_code", ["code"])
@@ -55,9 +56,9 @@ export default defineSchema({
     answeredAt: v.number(), // Timestamp for speed bonus
     elevationAtAnswer: v.number(), // Player's elevation when they grabbed the rope
     // Scoring components (calculated on reveal)
-    baseScore: v.optional(v.number()), // Base score from answer speed (0-100m)
-    minorityBonus: v.optional(v.number()), // Minority bonus (0-50m)
-    elevationGain: v.optional(v.number()), // Total elevation gain (baseScore + minorityBonus)
+    baseScore: v.optional(v.number()), // Base elevation for correct answer
+    speedBonus: v.optional(v.number()), // First-answerer bonus (top 20% of correct answerers)
+    elevationGain: v.optional(v.number()), // Total elevation gain (baseScore + speedBonus)
   })
     .index("by_question", ["questionId"])
     .index("by_player", ["playerId"])

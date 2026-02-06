@@ -82,6 +82,46 @@ export const getLeaderboard = query({
   },
 });
 
+// Optimized leaderboard query - returns only top N players + current player's rank
+// Reduces data transfer from all players to just top 10 (or 11 if current player outside top)
+export const getLeaderboardSummary = query({
+  args: {
+    sessionId: v.id("sessions"),
+    playerId: v.optional(v.id("players")),
+    limit: v.optional(v.number()), // default 10
+  },
+  handler: async (ctx, { sessionId, playerId, limit = 10 }) => {
+    const allPlayers = await ctx.db
+      .query("players")
+      .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+      .collect();
+
+    // Sort by elevation descending (highest climbers first)
+    const sorted = allPlayers.sort(
+      (a, b) => (b.elevation ?? 0) - (a.elevation ?? 0)
+    );
+
+    const top = sorted.slice(0, limit);
+
+    let currentRank: number | null = null;
+    let currentPlayer = null;
+    if (playerId) {
+      const idx = sorted.findIndex((p) => p._id === playerId);
+      if (idx !== -1) {
+        currentRank = idx + 1;
+        currentPlayer = sorted[idx];
+      }
+    }
+
+    return {
+      top,
+      currentRank,
+      currentPlayer,
+      totalPlayers: allPlayers.length,
+    };
+  },
+});
+
 export const addElevation = mutation({
   args: {
     playerId: v.id("players"),
@@ -204,5 +244,47 @@ export const kick = mutation({
 
     // Delete the player record
     await ctx.db.delete(args.playerId);
+  },
+});
+
+// Get player context for optimized player view subscription
+// Returns current player, nearby players within elevation range, and total player count
+// Used by PlayerView for Mountain component - reduces data transfer compared to listBySession
+export const getPlayerContext = query({
+  args: {
+    sessionId: v.id("sessions"),
+    playerId: v.id("players"),
+    elevationRange: v.optional(v.number()), // default 150m above and below
+  },
+  handler: async (ctx, { sessionId, playerId, elevationRange = 150 }) => {
+    const currentPlayer = await ctx.db.get(playerId);
+    if (!currentPlayer) return null;
+
+    // Verify player belongs to this session
+    if (currentPlayer.sessionId !== sessionId) return null;
+
+    const elevation = currentPlayer.elevation ?? 0;
+    const minElevation = Math.max(0, elevation - elevationRange);
+    const maxElevation = elevation + elevationRange;
+
+    // Get all players in session
+    const allPlayers = await ctx.db
+      .query("players")
+      .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+      .collect();
+
+    // Filter to nearby players only (includes current player)
+    const nearbyPlayers = allPlayers.filter(
+      (p) =>
+        p.elevation !== undefined &&
+        p.elevation >= minElevation &&
+        p.elevation <= maxElevation
+    );
+
+    return {
+      currentPlayer,
+      nearbyPlayers,
+      totalPlayers: allPlayers.length,
+    };
   },
 });
