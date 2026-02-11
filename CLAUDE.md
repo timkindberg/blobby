@@ -147,6 +147,12 @@ bun run test:run     # Run unit tests once
 bun run test:e2e     # Run Playwright E2E tests
 ```
 
+### Pre-Push Checklist
+
+Before pushing significant changes, run E2E tests:
+1. Ensure Convex dev server is running: `bun run convex:dev`
+2. Run E2E tests: `bun run test:e2e`
+
 ## Testing
 
 ### Test Types

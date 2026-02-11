@@ -9,6 +9,7 @@
  */
 
 import type * as answers from "../answers.js";
+import type * as helpers from "../helpers.js";
 import type * as http from "../http.js";
 import type * as players from "../players.js";
 import type * as questions from "../questions.js";
@@ -23,6 +24,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   answers: typeof answers;
+  helpers: typeof helpers;
   http: typeof http;
   players: typeof players;
   questions: typeof questions;
