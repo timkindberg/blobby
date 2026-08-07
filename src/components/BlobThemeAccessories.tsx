@@ -89,12 +89,26 @@ const BLUE_EDGE = "#5E9BCE";
 const CREAM = "#FFE2A8";
 const CREAM_EDGE = "#E9C077";
 const MINT = "#B7E6D3";
+// Bib fabric is buttermilk, not white: the diaper below it is white, and two
+// white garments touching read as one shapeless blob.
+const BIB_CLOTH = "#FFF3D9";
 const TEDDY = "#D3A97F";
 const TEDDY_EDGE = "#A87C55";
 
 /** Lowest eye baseline — bean blobs have slightly uneven eyes. */
 function mouthLine(eyes: EyePositions): number {
   return Math.max(eyes.left[1], eyes.right[1]);
+}
+
+type Point = [number, number];
+
+/** Point at `t` along a quadratic Bézier - used to space scallops on a curve. */
+function quadPoint(p0: Point, c: Point, p1: Point, t: number): Point {
+  const inv = 1 - t;
+  return [
+    inv * inv * p0[0] + 2 * inv * t * c[0] + t * t * p1[0],
+    inv * inv * p0[1] + 2 * inv * t * c[1] + t * t * p1[1],
+  ];
 }
 
 /** Half-width of the body at a given height. */
@@ -169,45 +183,117 @@ function Bib({ bodyShape, eyes, clipId }: PartProps) {
   const { centerX } = getShapeDimensions(bodyShape);
   const topY = getTopY(bodyShape);
   const bottomY = getBodyBottomY(bodyShape);
-  const neckY = mouthLine(eyes) + 12;
 
-  // Width follows the body; depth stops above where a diaper's waistband sits.
-  const w = Math.min(halfWidthAt(bodyShape, neckY + 10) * 0.82, 20);
-  const neckW = w * 0.46;
-  const maxDepth = bottomY - Math.max(16, (bottomY - topY) * 0.27) - neckY + 7;
-  const depth = Math.max(16, Math.min(w * 1.9, maxDepth));
+  // The bib occupies the band between the mouth and the nappy: it starts below
+  // where a binky hangs and its hem meets the diaper's waistband. Anchoring to
+  // both is what keeps it off the face on every body shape.
+  const waistY = bottomY - Math.max(16, (bottomY - topY) * 0.27);
 
-  const heartY = neckY + depth * 0.62;
-  const s = w * 0.28;
+  // Size the bib against the mouth/waist band first...
+  const anchorTop = Math.max(
+    mouthLine(eyes) + 12, // floor, for bodies too short to fit the ideal
+    Math.min(mouthLine(eyes) + 21, waistY - 14)
+  );
+  const depth = Math.max(14, waistY + 3 - anchorTop);
+
+  // ...then slide the whole thing down onto the belly, keeping its height.
+  // Deriving the hem from the shifted top instead would just squash it.
+  const shift = Math.min(10, Math.max(0, bottomY - 2 - (anchorTop + depth)));
+  const top = anchorTop + shift;
+
+  // Wide, like a real bib - but not so wide it becomes the whole torso.
+  const w = Math.min(halfWidthAt(bodyShape, top + 8) * 0.78, 19);
+
+  const left = centerX - w;
+  const right = centerX + w;
+  const shoulderR = w * 0.34;
+
+  // Rounded shoulders, a neckline that SCOOPS down between them, round hem.
+  // The scoop has to be an open curve rather than a punched hole: a closed
+  // circle at the top centre fills with body colour and reads as a snout.
+  const outline = `M ${left} ${top + shoulderR}
+    Q ${left} ${top} ${left + shoulderR} ${top}
+    Q ${centerX} ${top + w * 0.5} ${right - shoulderR} ${top}
+    Q ${right} ${top} ${right} ${top + shoulderR}
+    L ${right} ${top + depth * 0.42}
+    Q ${right} ${top + depth} ${centerX} ${top + depth}
+    Q ${left} ${top + depth} ${left} ${top + depth * 0.42}
+    Z`;
+
+  const heartY = top + depth * 0.55;
+  const s = w * 0.36;
+
+  // Open path for the trim: top edge and sides only, so the scalloped hem
+  // below can supply the bottom edge.
+  const upperTrim = `M ${left} ${top + depth * 0.42}
+    L ${left} ${top + shoulderR}
+    Q ${left} ${top} ${left + shoulderR} ${top}
+    Q ${centerX} ${top + w * 0.5} ${right - shoulderR} ${top}
+    Q ${right} ${top} ${right} ${top + shoulderR}
+    L ${right} ${top + depth * 0.42}`;
+
+  // Scallops sampled along the hem curve. Fabric stays near-white for contrast
+  // on every blob colour; the scallops and straps are what stop a pale shape
+  // under two eyes from reading as an open mouth.
+  const hemStart: Point = [right, top + depth * 0.42];
+  const hemMid: Point = [centerX, top + depth];
+  const hemEnd: Point = [left, top + depth * 0.42];
+  const scallops: Point[] = [
+    ...[0.35, 0.7, 1].map((t) => quadPoint(hemStart, [right, top + depth], hemMid, t)),
+    ...[0.3, 0.65].map((t) => quadPoint(hemMid, [left, top + depth], hemEnd, t)),
+  ];
+  const scallopR = w * 0.12;
 
   return (
     <g clipPath={`url(#${clipId})`}>
-      {/* Neck tie - bows UP, like a strap passing behind the neck. Bowing the
-          other way just reads as a big smile above a chin. */}
+      {/* Scallops first: the body fill below hides the arcs that fall inside
+          the bib, leaving only the bumps along the hem. */}
+      {scallops.map(([cx, cy], i) => (
+        <circle
+          key={i}
+          cx={cx}
+          cy={cy}
+          r={scallopR}
+          fill={BIB_CLOTH}
+          stroke={PINK_EDGE}
+          strokeWidth="1.3"
+        />
+      ))}
+      <path d={outline} fill={BIB_CLOTH} />
       <path
-        d={`M ${centerX - w * 0.95} ${neckY + 1} Q ${centerX} ${neckY - 6} ${centerX + w * 0.95} ${neckY + 1}`}
+        d={upperTrim}
         fill="none"
-        stroke={PINK_EDGE}
-        strokeWidth="2.4"
-        strokeLinecap="round"
-      />
-      <path
-        d={`M ${centerX - neckW} ${neckY}
-            C ${centerX - w} ${neckY + depth * 0.3} ${centerX - w} ${neckY + depth * 0.78} ${centerX} ${neckY + depth}
-            C ${centerX + w} ${neckY + depth * 0.78} ${centerX + w} ${neckY + depth * 0.3} ${centerX + neckW} ${neckY}
-            Q ${centerX} ${neckY + 4} ${centerX - neckW} ${neckY}
-            Z`}
-        fill="#FFF2F8"
         stroke={PINK_EDGE}
         strokeWidth="1.4"
         strokeLinejoin="round"
+        strokeLinecap="round"
       />
+      {/* Neck strap. Each side runs from the bib's shoulder OUT to the body's
+          edge, where the clip cuts it off - so it reads as passing behind the
+          neck. Stopping short (as it used to) just looks like two horns. */}
+      {[-1, 1].map((dir) => {
+        const startX = centerX + dir * (w - shoulderR);
+        const endY = top - 7;
+        const bodyEdges = getBodyEdges(bodyShape, endY);
+        const endX = (dir < 0 ? bodyEdges.left : bodyEdges.right) + dir * 2;
+        return (
+          <path
+            key={dir}
+            d={`M ${startX} ${top + 1}
+                Q ${startX + (endX - startX) * 0.55} ${top - 6} ${endX} ${endY}`}
+            fill="none"
+            stroke={PINK_EDGE}
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        );
+      })}
       {/* Heart motif */}
       <path
         d={`M${centerX} ${heartY + s * 0.3}
             C${centerX - s} ${heartY - s * 0.7} ${centerX - s * 1.4} ${heartY + s * 0.2} ${centerX} ${heartY + s * 1.1}
             C${centerX + s * 1.4} ${heartY + s * 0.2} ${centerX + s} ${heartY - s * 0.7} ${centerX} ${heartY + s * 0.3}`}
-        fill={PINK_EDGE}
+        fill={PINK}
       />
     </g>
   );
@@ -318,107 +404,185 @@ function Bonnet({ bodyShape, eyes, clipId }: PartProps) {
   const { centerX } = getShapeDimensions(bodyShape);
   const topY = getTopY(bodyShape);
   const bottomY = getBodyBottomY(bodyShape);
-  // Depth is capped by the EYE line, not just the body height: on a short,
-  // wide blob the eyes sit low in a small body, and a height-derived brim
-  // lands right across the face. The clearance covers the brim's dip (5) and
-  // the scalloped hem (3.4) plus the top of the eye itself.
+
+  // The cap's edge is an ARC, not a horizontal line: high across the forehead,
+  // dropping past the cheeks at the sides, the way a bonnet frames a face. A
+  // straight edge with a lens under it is what made this read as a visor.
+  //
+  // Both heights are fractions of the FOREHEAD (top of head to top of eye), so
+  // the cap covers the same proportion of every body shape and the frill can't
+  // land on the eyes.
   const eyeTop = Math.min(eyes.left[1], eyes.right[1]);
-  const brimY = Math.max(
-    topY + 6,
-    Math.min(topY + Math.min(16, (bottomY - topY) * 0.28), eyeTop - 14)
+  const forehead = Math.max(12, eyeTop - topY);
+  const foreheadY = topY + forehead * 0.38;
+  const sideY = topY + forehead * 0.64;
+  // Control point chosen so the curve passes exactly through foreheadY at the
+  // centre (quadratic midpoint = (P0 + 2C + P1) / 4).
+  const control = 2 * foreheadY - sideY;
+
+  // The arc runs between the body's own edges, so the frill can never end up
+  // as loose rings floating beside the head.
+  const edges = getBodyEdges(bodyShape, sideY);
+  const arcLeft: Point = [edges.left, sideY];
+  const arcRight: Point = [edges.right, sideY];
+  const arcControl: Point = [centerX, control];
+  const crownEdge = `L ${arcRight[0]} ${arcRight[1]} Q ${centerX} ${control} ${arcLeft[0]} ${arcLeft[1]}`;
+
+  const frill = [0.14, 0.28, 0.42, 0.58, 0.72, 0.86].map((t) =>
+    quadPoint(arcLeft, arcControl, arcRight, t)
   );
-  const edges = getBodyEdges(bodyShape, brimY);
+
+  const capClipId = `${clipId}-cap`;
 
   return (
     <>
+      <defs>
+        {/* Restricts the silhouette outline below to the cap area only */}
+        <clipPath id={capClipId}>
+          <rect x={-10} y={topY - 25} width={120} height={sideY - topY + 25} />
+        </clipPath>
+      </defs>
+
       {/* Crown, trimmed to the silhouette */}
       <g clipPath={`url(#${clipId})`}>
-        <rect x={-10} y={topY - 25} width={120} height={brimY - topY + 25} fill={CLOTH} />
+        <path
+          d={`M ${edges.left - 14} ${topY - 25} L ${edges.right + 14} ${topY - 25}
+              L ${edges.right + 14} ${sideY} ${crownEdge}
+              L ${edges.left - 14} ${sideY} Z`}
+          fill={CLOTH}
+        />
         {/* Shading so the white cap has some form */}
-        <ellipse cx={centerX} cy={topY - 2} rx={40} ry={12} fill={CLOTH_SHADE} opacity="0.7" />
-        {/* Scalloped hem, the giveaway that it's a bonnet and not a beanie */}
-        {[-2, -1, 0, 1, 2].map((i) => (
-          <circle key={i} cx={centerX + i * 9} cy={brimY - 2} r="3.4" fill={CLOTH} />
-        ))}
+        <ellipse cx={centerX} cy={topY - 1} rx={40} ry={12} fill={CLOTH_SHADE} opacity="0.7" />
       </g>
 
-      {/* Brim - a lens poking out past the head on both sides */}
+      {/* Keep the blob's edge visible - a white cap on a white background
+          otherwise looks like the top of the head was erased. */}
       <path
-        d={`M ${edges.left - 2} ${brimY - 1}
-            Q ${centerX} ${brimY + 5} ${edges.right + 2} ${brimY - 1}
-            Q ${centerX} ${brimY - 5} ${edges.left - 2} ${brimY - 1} Z`}
-        fill={PINK}
-        stroke={PINK_EDGE}
-        strokeWidth="1.2"
-        strokeLinejoin="round"
+        d={getBodyPath(bodyShape)}
+        fill="none"
+        stroke={CLOTH_EDGE}
+        strokeWidth="1.6"
+        clipPath={`url(#${capClipId})`}
       />
 
-      {/* Chin ties */}
-      <path
-        d={`M ${edges.left + 1} ${brimY + 2} q -3 6 1 10`}
-        fill="none"
-        stroke={PINK_EDGE}
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-      <path
-        d={`M ${edges.right - 1} ${brimY + 2} q 3 6 -1 10`}
-        fill="none"
-        stroke={PINK_EDGE}
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
+      {/* Frill framing the face */}
+      {frill.map(([cx, cy], i) => (
+        <circle
+          key={i}
+          cx={cx}
+          cy={cy}
+          r="3.4"
+          fill={CLOTH}
+          stroke={PINK_EDGE}
+          strokeWidth="1.1"
+        />
+      ))}
+      {/* Redraw the crown a hair higher to hide the frill's inner arcs, so
+          only the scalloped bumps show below the cap edge. */}
+      <g clipPath={`url(#${clipId})`}>
+        <path
+          d={`M ${edges.left - 14} ${topY - 25} L ${edges.right + 14} ${topY - 25}
+              L ${edges.right + 14} ${sideY - 1.5}
+              L ${arcRight[0]} ${arcRight[1] - 1.5}
+              Q ${centerX} ${control - 1.5} ${arcLeft[0]} ${arcLeft[1] - 1.5}
+              L ${edges.left - 14} ${sideY - 1.5} Z`}
+          fill={CLOTH}
+        />
+      </g>
 
-      {/* Pom on top */}
-      <circle cx={centerX} cy={topY - 1} r="3.6" fill={PINK} stroke={PINK_EDGE} strokeWidth="1" />
+      {/* Chin ties hanging from where the frill meets the body */}
+      {[-1, 1].map((dir) => (
+        <path
+          key={dir}
+          d={`M ${dir < 0 ? edges.left + 2 : edges.right - 2} ${sideY}
+              q ${dir * 2} 6 ${dir * -1.5} 11`}
+          fill="none"
+          stroke={PINK_EDGE}
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      ))}
+
+      {/* Little bow on top, instead of a pom - poms read as beanies */}
+      <g transform={`translate(${centerX}, ${topY + 1})`}>
+        <path d="M 0 0 L -6 -3.4 L -6 3.4 Z" fill={PINK} stroke={PINK_EDGE} strokeWidth="0.9" strokeLinejoin="round" />
+        <path d="M 0 0 L 6 -3.4 L 6 3.4 Z" fill={PINK} stroke={PINK_EDGE} strokeWidth="0.9" strokeLinejoin="round" />
+        <circle cx="0" cy="0" r="1.7" fill={PINK_EDGE} />
+      </g>
     </>
   );
 }
 
 /**
- * Booties — a pair of little shoes poking out under the blob. Centred as a
- * pair rather than pinned to the body edges: on a wide body, edge-anchored
- * feet end up a body-width apart and read as two stray objects.
+ * Booties — the blob is sitting on its bottom with both legs out, so what you
+ * see is the SOLE of each foot, angled away from the body at the lower sides.
+ *
+ * Drawn side-on and standing (the obvious reading) it just looked like the
+ * blob was balancing on two shoes.
  */
 function Booties({ bodyShape }: PartProps) {
   const { centerX } = getShapeDimensions(bodyShape);
   const bottomY = getBodyBottomY(bodyShape);
-  const edges = getBodyEdges(bodyShape, bottomY - 3);
-  // Small enough that both shoes always sit within the silhouette.
-  const w = Math.min(13, (edges.right - edges.left) * 0.34);
-  const h = w * 0.52;
-  const y = bottomY - h * 0.35;
+  const footY = bottomY - 4;
+  const edges = getBodyEdges(bodyShape, footY);
+  const w = Math.min(15, (edges.right - edges.left) * 0.38);
+  // Spread from the CENTRE, not the silhouette: on a round or wide body the
+  // edge at this height is the widest point, which parks the feet up at the
+  // waist like flippers instead of out in front of the bottom.
+  // Enough that the two ankle cuffs sit side by side rather than overlapping
+  // into one blob in the middle, but close enough to still read as a pair.
+  const spread = w * 1.0;
 
   const bootie = (dir: -1 | 1, key: string) => {
-    const cx = centerX + dir * w * 0.56;
+    const cx = centerX + dir * spread;
     return (
-      <g key={key}>
-        {/* Shoe: flat heel, rounded toe pointing outward */}
+      // Mirroring instead of rotating the other way keeps one drawing for both
+      // feet. Toe tips slightly UP and out, the way feet sit when a baby is
+      // sitting down with its legs in front.
+      // Rotated so the toe points mostly UP and slightly outward - the way a
+      // sitting baby's feet stick up in front of it. Laid flat, the pair reads
+      // as shoes on the floor with the blob standing on them.
+      <g key={key} transform={`translate(${cx}, ${footY}) scale(${dir}, 1) rotate(-68)`}>
+        {/* A bootie's signature is an L: an ankle shaft with a foot running
+            forward at the bottom. Stack a cuff on a box instead and you get a
+            container; draw the sole face-on and you get a mitt. */}
         <path
-          d={`M ${cx - dir * w * 0.42} ${y - h * 0.5}
-              L ${cx + dir * w * 0.1} ${y - h * 0.5}
-              Q ${cx + dir * w * 0.58} ${y - h * 0.5} ${cx + dir * w * 0.58} ${y + h * 0.1}
-              Q ${cx + dir * w * 0.58} ${y + h * 0.5} ${cx + dir * w * 0.1} ${y + h * 0.5}
-              L ${cx - dir * w * 0.42} ${y + h * 0.5}
-              Q ${cx - dir * w * 0.58} ${y} ${cx - dir * w * 0.42} ${y - h * 0.5} Z`}
+          d={`M ${-w * 0.42} ${-w * 0.4}
+              L ${w * 0.16} ${-w * 0.4}
+              L ${w * 0.16} ${-w * 0.12}
+              C ${w * 0.36} ${-w * 0.14} ${w * 0.54} ${-w * 0.02} ${w * 0.56} ${w * 0.16}
+              C ${w * 0.58} ${w * 0.34} ${w * 0.48} ${w * 0.46} ${w * 0.3} ${w * 0.46}
+              Q 0 ${w * 0.64} ${-w * 0.3} ${w * 0.46}
+              C ${-w * 0.42} ${w * 0.46} ${-w * 0.46} ${w * 0.38} ${-w * 0.46} ${w * 0.24}
+              Z`}
           fill={MINT}
           stroke="#7FC9AC"
           strokeWidth="1"
           strokeLinejoin="round"
         />
-        {/* Ankle cuff */}
+        {/* Sole. Bulged rather than flat, and taken further up the sides, so it
+            reads as the rounded underside of the shoe tipping toward us. */}
+        <path
+          d={`M ${-w * 0.46} ${w * 0.22}
+              L ${w * 0.575} ${w * 0.22}
+              C ${w * 0.57} ${w * 0.4} ${w * 0.46} ${w * 0.46} ${w * 0.3} ${w * 0.46}
+              Q 0 ${w * 0.64} ${-w * 0.3} ${w * 0.46}
+              C ${-w * 0.42} ${w * 0.46} ${-w * 0.46} ${w * 0.38} ${-w * 0.46} ${w * 0.22}
+              Z`}
+          fill="#7FC9AC"
+        />
+        {/* Folded-over knitted cuff at the top of the shaft. Pink, not white:
+            it sits against the (white) nappy, where white disappears. */}
         <rect
-          x={cx - w * 0.3}
-          y={y - h * 1.15}
-          width={w * 0.6}
-          height={h * 0.7}
-          rx={h * 0.3}
-          fill={CLOTH}
-          stroke={CLOTH_EDGE}
+          x={-w * 0.52}
+          y={-w * 0.62}
+          width={w * 0.78}
+          height={w * 0.28}
+          rx={w * 0.11}
+          fill={PINK}
+          stroke={PINK_EDGE}
           strokeWidth="0.9"
         />
-        {/* Pom on the toe */}
-        <circle cx={cx + dir * w * 0.32} cy={y - h * 0.28} r={w * 0.13} fill={PINK} />
       </g>
     );
   };

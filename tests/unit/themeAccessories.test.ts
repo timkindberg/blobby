@@ -68,6 +68,7 @@ describe("generateThemeAccessories", () => {
   test("renders back-to-front: body, hands, face, then head", () => {
     const order = [
       "bottom",
+      "feet",
       "chest",
       "hand-left",
       "hand-right",

@@ -24,6 +24,7 @@ type Colors6 = [string, string, string, string, string, string];
  */
 export type ThemeAccessorySlot =
   | "bottom"
+  | "feet"
   | "chest"
   | "hand-left"
   | "hand-right"

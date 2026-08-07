@@ -20,14 +20,18 @@ export const babyTheme: Theme = {
   soundPack: "baby",
 
   blobAccessories: {
-    // Rosy cheeks on everyone - the single detail that makes the whole
-    // roster read as babies rather than blobs holding baby props.
-    always: [{ id: "cheeks", slot: "cheeks" }],
+    // Rosy cheeks and a nappy on everyone: these two carry the theme, and
+    // make the roster read as babies rather than blobs holding baby props.
+    // Everything else is dressing.
+    always: [
+      { id: "cheeks", slot: "cheeks" },
+      { id: "diaper", slot: "bottom" },
+    ],
     // Several candidates per slot, so a crowd of blobs looks like a nursery
     // instead of the same three items repeated.
     pool: [
-      { id: "diaper", slot: "bottom" },
-      { id: "booties", slot: "bottom" },
+      // Own slot, so the always-on nappy doesn't block them.
+      { id: "booties", slot: "feet" },
       // A bowtie already sits on the chest.
       { id: "bib", slot: "chest", conflictsWith: ["bowtie"] },
       { id: "rattle", slot: "hand-left" },
@@ -42,10 +46,9 @@ export const babyTheme: Theme = {
         conflictsWith: ["hat", "crown", "bow", "bandana", "flower", "headphones"],
       },
     ],
-    // Babies come over-accessorised. A floor of 2 picks (plus cheeks) means no
-    // blob shows up under-dressed; 4 fills most of the slots at once.
+    // On top of the always-on cheeks and nappy, so 3 is already a lot of baby.
     minCount: 2,
-    maxCount: 4,
+    maxCount: 3,
   },
 
   mountain: {
