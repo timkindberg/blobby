@@ -155,7 +155,9 @@ const SLOT_RENDER_ORDER: Record<ThemeAccessorySlot, number> = {
   chest: 1,
   "hand-left": 2,
   "hand-right": 3,
-  mouth: 4,
+  cheeks: 4,
+  mouth: 5,
+  head: 6,
 };
 
 /**
@@ -176,30 +178,53 @@ export function generateThemeAccessories(
   spec: ThemeBlobAccessories,
   baseAccessory: Accessory
 ): ThemeAccessorySpec[] {
-  const available = spec.pool.filter(
-    (item) => !item.conflictsWith?.includes(baseAccessory)
-  );
-  if (available.length === 0 || spec.maxCount <= 0) return [];
+  const wearable = (item: ThemeAccessorySpec) =>
+    !item.conflictsWith?.includes(baseAccessory);
+
+  const bySlot = new Map<ThemeAccessorySlot, ThemeAccessorySpec>();
+
+  // Always-on items claim their slots first — a theme's signature detail
+  // shouldn't be at the mercy of the dice.
+  for (const item of spec.always ?? []) {
+    if (wearable(item) && !bySlot.has(item.slot)) bySlot.set(item.slot, item);
+  }
+
+  const available = spec.pool.filter(wearable);
+  if (available.length === 0 || spec.maxCount <= 0) {
+    return sortBySlot([...bySlot.values()]);
+  }
 
   const random = seededRandom(hashString(`${name.toLowerCase().trim()}::${themeId}`));
 
-  // Shuffle a copy, then take the first N — guarantees distinct picks.
+  // Shuffle a copy, then walk it — taking the first item for each new slot.
   const shuffled = [...available];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
   }
 
-  const max = Math.min(spec.maxCount, shuffled.length);
+  // A pool can offer several items per slot (rattle OR teddy in a hand), so
+  // the ceiling is the number of distinct fillable slots, not the pool size.
+  const fillableSlots = new Set(
+    available.map((item) => item.slot).filter((slot) => !bySlot.has(slot))
+  ).size;
+  const max = Math.min(spec.maxCount, fillableSlots);
   const min = Math.max(0, Math.min(spec.minCount, max));
   const count = min + Math.floor(random() * (max - min + 1));
 
-  const bySlot = new Map<ThemeAccessorySlot, ThemeAccessorySpec>();
-  for (const item of shuffled.slice(0, count)) {
-    if (!bySlot.has(item.slot)) bySlot.set(item.slot, item);
+  const picked = new Set<ThemeAccessorySlot>();
+  for (const item of shuffled) {
+    if (picked.size >= count) break;
+    if (bySlot.has(item.slot)) continue; // taken by `always` or an earlier pick
+    bySlot.set(item.slot, item);
+    picked.add(item.slot);
   }
 
-  return [...bySlot.values()].sort(
+  return sortBySlot([...bySlot.values()]);
+}
+
+function sortBySlot(accessories: ThemeAccessorySpec[]): ThemeAccessorySpec[] {
+  return accessories.sort(
     (a, b) => SLOT_RENDER_ORDER[a.slot] - SLOT_RENDER_ORDER[b.slot]
   );
 }

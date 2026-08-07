@@ -10,13 +10,26 @@ const SUN_GLOW_OFFSETS = ["0%", "40%", "70%", "100%"];
 const SHADOW_OFFSETS = ["0%", "30%", "70%", "100%"];
 
 // Speck placement for the surface texture pattern (40x40 tile).
+// `rotate` only matters for hearts - a tilted scatter reads as hand-strewn.
 const TEXTURE_SPECKS = [
-  { cx: 8, cy: 8, grain: 0.5, dot: 2.2 },
-  { cx: 28, cy: 12, grain: 0.4, dot: 1.5 },
-  { cx: 16, cy: 24, grain: 0.6, dot: 2.6 },
-  { cx: 34, cy: 30, grain: 0.3, dot: 1.3 },
-  { cx: 6, cy: 36, grain: 0.5, dot: 1.9 },
+  { cx: 8, cy: 8, grain: 0.5, dot: 2.2, rotate: -12 },
+  { cx: 28, cy: 12, grain: 0.4, dot: 1.5, rotate: 14 },
+  { cx: 16, cy: 24, grain: 0.6, dot: 2.6, rotate: -4 },
+  { cx: 34, cy: 30, grain: 0.3, dot: 1.3, rotate: 22 },
+  { cx: 6, cy: 36, grain: 0.5, dot: 1.9, rotate: -18 },
 ];
+
+/**
+ * Heart centred on (0,0), sized so `r` matches the radius a dot would use.
+ * Kept as a path (not an emoji) so it inherits the theme's texture colors.
+ */
+function heartPath(r: number): string {
+  const w = r * 1.15;
+  const h = r * 1.1;
+  return `M 0 ${h}
+          C ${-w * 1.6} ${-h * 0.25} ${-w * 0.7} ${-h * 1.5} 0 ${-h * 0.45}
+          C ${w * 0.7} ${-h * 1.5} ${w * 1.6} ${-h * 0.25} 0 ${h} Z`;
+}
 
 /**
  * SVG <defs> block for mountain gradients, patterns, and filters.
@@ -92,18 +105,28 @@ export function MountainDefs({ mode }: { mode: MountainMode }) {
         <stop offset="100%" stopColor="transparent" />
       </linearGradient>
 
-      {/* Surface texture pattern - fine grain, or polka dots for softer themes */}
+      {/* Surface texture pattern - fine grain, polka dots, or nursery hearts */}
       <pattern id={`rock-texture-${mode}`} patternUnits="userSpaceOnUse" width="40" height="40">
         <rect width="40" height="40" fill="transparent" />
-        {TEXTURE_SPECKS.map((speck, i) => (
-          <circle
-            key={i}
-            cx={speck.cx}
-            cy={speck.cy}
-            r={mountain.texture.kind === "dots" ? speck.dot : speck.grain}
-            fill={mountain.texture.colors[i]}
-          />
-        ))}
+        {TEXTURE_SPECKS.map((speck, i) =>
+          mountain.texture.kind === "hearts" ? (
+            <path
+              key={i}
+              // Hearts need more area than a dot to be legible as a shape
+              d={heartPath(speck.dot * 1.5)}
+              fill={mountain.texture.colors[i]}
+              transform={`translate(${speck.cx}, ${speck.cy}) rotate(${speck.rotate})`}
+            />
+          ) : (
+            <circle
+              key={i}
+              cx={speck.cx}
+              cy={speck.cy}
+              r={mountain.texture.kind === "dots" ? speck.dot : speck.grain}
+              fill={mountain.texture.colors[i]}
+            />
+          )
+        )}
       </pattern>
 
       {/* Filter for subtle noise texture */}

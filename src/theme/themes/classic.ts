@@ -60,6 +60,8 @@ export const classicTheme: Theme = {
       labelSummit: "#FFD700",
       labelShadow: "#000000",
     },
+    // Hemp rope and weathered wood - the original look.
+    rope: { rail: "#A67C3D", rung: "#7a6540" },
     flag: {
       fabric: "#E63946",
       highlight: "#F4A4A8",

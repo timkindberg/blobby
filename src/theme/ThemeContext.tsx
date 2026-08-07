@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { DEFAULT_THEME_ID, isThemeId, type ThemeId } from "../../lib/themes";
 import { THEMES, resolveTheme } from "./registry";
 import type { Theme } from "./types";
+import { setSoundPack } from "../lib/soundManager";
 import "./themes.css";
 
 interface ThemeContextValue {
@@ -37,6 +38,11 @@ export function ThemeProvider({
   // Mirror onto <html> so plain CSS (page backgrounds, buttons) can theme too.
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", themeId);
+  }, [themeId]);
+
+  // A theme also owns how the game sounds, not just how it looks.
+  useEffect(() => {
+    setSoundPack(THEMES[themeId].soundPack ?? "classic");
   }, [themeId]);
 
   const value = useMemo<ThemeContextValue>(

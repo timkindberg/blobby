@@ -1,5 +1,6 @@
 import type { ThemeId } from "../../lib/themes";
 import type { Accessory } from "../lib/blobGenerator";
+import type { SoundPack } from "../lib/soundManager";
 
 /**
  * The shape of a theme.
@@ -21,10 +22,27 @@ type Colors6 = [string, string, string, string, string, string];
  * Where a themed accessory attaches to a blob. At most one accessory per slot,
  * so two picks never fight over the same pixels.
  */
-export type ThemeAccessorySlot = "bottom" | "chest" | "hand-left" | "hand-right" | "mouth";
+export type ThemeAccessorySlot =
+  | "bottom"
+  | "chest"
+  | "hand-left"
+  | "hand-right"
+  | "cheeks"
+  | "mouth"
+  | "head";
 
 /** Every themed accessory across all themes. */
-export type ThemeAccessoryId = "diaper" | "bib" | "rattle" | "bottle" | "binky";
+export type ThemeAccessoryId =
+  | "diaper"
+  | "bib"
+  | "rattle"
+  | "bottle"
+  | "binky"
+  | "bonnet"
+  | "teddy"
+  | "booties"
+  | "blocks"
+  | "cheeks";
 
 export interface ThemeAccessorySpec {
   id: ThemeAccessoryId;
@@ -34,11 +52,19 @@ export interface ThemeAccessorySpec {
 }
 
 export interface ThemeBlobAccessories {
+  /**
+   * Worn by every blob in the theme (subject to `conflictsWith`), before the
+   * random picks. For the signature detail a theme wants on all of them.
+   */
+  always?: ThemeAccessorySpec[];
   /** Candidates. Picks are deterministic per player name. */
   pool: ThemeAccessorySpec[];
-  /** Minimum accessories per blob (clamped to the pool size). */
+  /**
+   * Minimum / maximum *randomly picked* accessories per blob, counted in
+   * distinct slots and clamped to what the pool can fill. `always` items are
+   * on top of these.
+   */
   minCount: number;
-  /** Maximum accessories per blob (clamped to the pool size). */
   maxCount: number;
 }
 
@@ -62,9 +88,12 @@ export interface MountainPalette {
     /** Vertical depth streaks. */
     streak: string;
   };
-  /** Repeating surface texture. `grain` = fine noise specks, `dots` = polka dots. */
+  /**
+   * Repeating surface texture. `grain` = fine noise specks, `dots` = polka
+   * dots, `hearts` = scattered nursery hearts.
+   */
   texture: {
-    kind: "grain" | "dots";
+    kind: "grain" | "dots" | "hearts";
     colors: Colors5;
     /** Opacity of the texture overlay across the whole rock face. */
     opacity: number;
@@ -93,6 +122,11 @@ export interface MountainPalette {
     /** Halo drawn behind labels so they stay readable on the rock face. */
     labelShadow: string;
   };
+  /**
+   * Rope ladders players climb. Only the neutral (pre-reveal) state is themed;
+   * correct green and wrong grey stay semantic in every theme.
+   */
+  rope: { rail: string; rung: string };
   flag: { fabric: string; highlight: string; pole: string; finial: string };
   /** Question panel floating in the sky (spectator mode). */
   skyPanel: { background: string; border: string; title: string; text: string };
@@ -104,6 +138,8 @@ export interface Theme {
   label: string;
   emoji: string;
   description: string;
+  /** How the game sounds. Defaults to the standard pack. */
+  soundPack?: SoundPack;
   blobAccessories: ThemeBlobAccessories;
   mountain: MountainPalette;
 }

@@ -1,12 +1,12 @@
 import { THEME_IDS, DEFAULT_THEME_ID, isThemeId, type ThemeId } from "../../lib/themes";
 import type { Theme } from "./types";
 import { classicTheme } from "./themes/classic";
-import { babyShowerTheme } from "./themes/babyShower";
+import { babyTheme } from "./themes/baby";
 
 /** Every theme, keyed by id. Adding a theme = one entry here. */
 export const THEMES: Record<ThemeId, Theme> = {
   classic: classicTheme,
-  baby_shower: babyShowerTheme,
+  baby_shower: babyTheme,
 };
 
 /** Themes in display order — drives the host's theme picker. */

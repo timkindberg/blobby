@@ -10,15 +10,16 @@ import {
 } from "./blobGeometry";
 
 /**
- * Themed blob accessories (currently the Baby Shower set).
+ * Themed blob accessories (currently the Baby set).
  *
  * Two positioning strategies, depending on how the item is worn:
  *
- *  - WORN items (diaper, bib) are drawn deliberately oversized and clipped to
- *    the body path. The silhouette does the fitting, so they hug all eight
- *    body shapes without eight sets of hand-tuned coordinates.
- *  - HELD / FACE items (bottle, rattle, binky) are placed from the body edges
- *    and eye line, and scale down on narrow bodies so they never overhang.
+ *  - WORN items (diaper, bib, bonnet) are drawn deliberately oversized and
+ *    clipped to the body path. The silhouette does the fitting, so they hug all
+ *    eight body shapes without eight sets of hand-tuned coordinates.
+ *  - HELD / FACE items (bottle, rattle, teddy, blocks, binky, cheeks) are
+ *    placed from the body edges and eye line, and scale down on narrow bodies
+ *    so they never overhang.
  *
  * Everything is drawn in the blob's 0-100 viewBox, so it scales with `size`:
  * the same paths serve the 32px mountain blobs and the 120px lobby blob.
@@ -64,10 +65,15 @@ interface PartProps {
 function ThemeAccessoryPart({ id, ...props }: PartProps & { id: ThemeAccessoryId }) {
   switch (id) {
     case "diaper": return <Diaper {...props} />;
+    case "booties": return <Booties {...props} />;
     case "bib": return <Bib {...props} />;
     case "rattle": return <Rattle {...props} />;
+    case "teddy": return <Teddy {...props} />;
     case "bottle": return <Bottle {...props} />;
+    case "blocks": return <Blocks {...props} />;
+    case "cheeks": return <Cheeks {...props} />;
     case "binky": return <Binky {...props} />;
+    case "bonnet": return <Bonnet {...props} />;
     default: return null;
   }
 }
@@ -79,8 +85,12 @@ const CLOTH_EDGE = "#DCCBEC";
 const PINK = "#FFC6DD";
 const PINK_EDGE = "#EE85B2";
 const BLUE = "#8FC3EE";
+const BLUE_EDGE = "#5E9BCE";
 const CREAM = "#FFE2A8";
 const CREAM_EDGE = "#E9C077";
+const MINT = "#B7E6D3";
+const TEDDY = "#D3A97F";
+const TEDDY_EDGE = "#A87C55";
 
 /** Lowest eye baseline — bean blobs have slightly uneven eyes. */
 function mouthLine(eyes: EyePositions): number {
@@ -265,6 +275,221 @@ function Bottle({ bodyShape, eyes }: PartProps) {
       {/* Measurement marks */}
       <line x1="1.8" y1="-2.5" x2="3.8" y2="-2.5" stroke="#7FAFD9" strokeWidth="0.8" strokeLinecap="round" />
       <line x1="1.8" y1="0.5" x2="3.8" y2="0.5" stroke="#7FAFD9" strokeWidth="0.8" strokeLinecap="round" />
+    </g>
+  );
+}
+
+/**
+ * Rosy cheeks — worn by every baby blob. Two soft blushes just below and
+ * outside the eyes, clamped inside the silhouette on narrow bodies.
+ */
+function Cheeks({ bodyShape, eyes }: PartProps) {
+  const { headWidth } = getShapeDimensions(bodyShape);
+  const scale = headWidth / 35;
+  const rx = 5 * scale;
+  const ry = 3.4 * scale;
+
+  const blush = (eye: [number, number], direction: -1 | 1) => {
+    const y = eye[1] + 9 * scale;
+    const edges = getBodyEdges(bodyShape, y);
+    const wanted = eye[0] + direction * 5 * scale;
+    // Keep the whole blush inside the body edge at this height.
+    const cx = Math.min(edges.right - rx - 1, Math.max(edges.left + rx + 1, wanted));
+    return { cx, cy: y };
+  };
+
+  const left = blush(eyes.left, -1);
+  const right = blush(eyes.right, 1);
+
+  return (
+    <g opacity="0.55">
+      <ellipse cx={left.cx} cy={left.cy} rx={rx} ry={ry} fill={PINK_EDGE} />
+      <ellipse cx={right.cx} cy={right.cy} rx={rx} ry={ry} fill={PINK_EDGE} />
+    </g>
+  );
+}
+
+/**
+ * Bonnet — a soft cap over the top of the head. Like the diaper, the crown is
+ * overdrawn and clipped to the silhouette; the brim and ties are drawn outside
+ * the clip so the hat reads as sitting ON the blob rather than painted into it.
+ */
+function Bonnet({ bodyShape, eyes, clipId }: PartProps) {
+  const { centerX } = getShapeDimensions(bodyShape);
+  const topY = getTopY(bodyShape);
+  const bottomY = getBodyBottomY(bodyShape);
+  // Depth is capped by the EYE line, not just the body height: on a short,
+  // wide blob the eyes sit low in a small body, and a height-derived brim
+  // lands right across the face. The clearance covers the brim's dip (5) and
+  // the scalloped hem (3.4) plus the top of the eye itself.
+  const eyeTop = Math.min(eyes.left[1], eyes.right[1]);
+  const brimY = Math.max(
+    topY + 6,
+    Math.min(topY + Math.min(16, (bottomY - topY) * 0.28), eyeTop - 14)
+  );
+  const edges = getBodyEdges(bodyShape, brimY);
+
+  return (
+    <>
+      {/* Crown, trimmed to the silhouette */}
+      <g clipPath={`url(#${clipId})`}>
+        <rect x={-10} y={topY - 25} width={120} height={brimY - topY + 25} fill={CLOTH} />
+        {/* Shading so the white cap has some form */}
+        <ellipse cx={centerX} cy={topY - 2} rx={40} ry={12} fill={CLOTH_SHADE} opacity="0.7" />
+        {/* Scalloped hem, the giveaway that it's a bonnet and not a beanie */}
+        {[-2, -1, 0, 1, 2].map((i) => (
+          <circle key={i} cx={centerX + i * 9} cy={brimY - 2} r="3.4" fill={CLOTH} />
+        ))}
+      </g>
+
+      {/* Brim - a lens poking out past the head on both sides */}
+      <path
+        d={`M ${edges.left - 2} ${brimY - 1}
+            Q ${centerX} ${brimY + 5} ${edges.right + 2} ${brimY - 1}
+            Q ${centerX} ${brimY - 5} ${edges.left - 2} ${brimY - 1} Z`}
+        fill={PINK}
+        stroke={PINK_EDGE}
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+
+      {/* Chin ties */}
+      <path
+        d={`M ${edges.left + 1} ${brimY + 2} q -3 6 1 10`}
+        fill="none"
+        stroke={PINK_EDGE}
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <path
+        d={`M ${edges.right - 1} ${brimY + 2} q 3 6 -1 10`}
+        fill="none"
+        stroke={PINK_EDGE}
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+
+      {/* Pom on top */}
+      <circle cx={centerX} cy={topY - 1} r="3.6" fill={PINK} stroke={PINK_EDGE} strokeWidth="1" />
+    </>
+  );
+}
+
+/**
+ * Booties — a pair of little shoes poking out under the blob. Centred as a
+ * pair rather than pinned to the body edges: on a wide body, edge-anchored
+ * feet end up a body-width apart and read as two stray objects.
+ */
+function Booties({ bodyShape }: PartProps) {
+  const { centerX } = getShapeDimensions(bodyShape);
+  const bottomY = getBodyBottomY(bodyShape);
+  const edges = getBodyEdges(bodyShape, bottomY - 3);
+  // Small enough that both shoes always sit within the silhouette.
+  const w = Math.min(13, (edges.right - edges.left) * 0.34);
+  const h = w * 0.52;
+  const y = bottomY - h * 0.35;
+
+  const bootie = (dir: -1 | 1, key: string) => {
+    const cx = centerX + dir * w * 0.56;
+    return (
+      <g key={key}>
+        {/* Shoe: flat heel, rounded toe pointing outward */}
+        <path
+          d={`M ${cx - dir * w * 0.42} ${y - h * 0.5}
+              L ${cx + dir * w * 0.1} ${y - h * 0.5}
+              Q ${cx + dir * w * 0.58} ${y - h * 0.5} ${cx + dir * w * 0.58} ${y + h * 0.1}
+              Q ${cx + dir * w * 0.58} ${y + h * 0.5} ${cx + dir * w * 0.1} ${y + h * 0.5}
+              L ${cx - dir * w * 0.42} ${y + h * 0.5}
+              Q ${cx - dir * w * 0.58} ${y} ${cx - dir * w * 0.42} ${y - h * 0.5} Z`}
+          fill={MINT}
+          stroke="#7FC9AC"
+          strokeWidth="1"
+          strokeLinejoin="round"
+        />
+        {/* Ankle cuff */}
+        <rect
+          x={cx - w * 0.3}
+          y={y - h * 1.15}
+          width={w * 0.6}
+          height={h * 0.7}
+          rx={h * 0.3}
+          fill={CLOTH}
+          stroke={CLOTH_EDGE}
+          strokeWidth="0.9"
+        />
+        {/* Pom on the toe */}
+        <circle cx={cx + dir * w * 0.32} cy={y - h * 0.28} r={w * 0.13} fill={PINK} />
+      </g>
+    );
+  };
+
+  return (
+    <g>
+      {bootie(-1, "left")}
+      {bootie(1, "right")}
+    </g>
+  );
+}
+
+/** Teddy bear — hugged at the body's left side. */
+function Teddy({ bodyShape, eyes }: PartProps) {
+  const y = mouthLine(eyes) + 20;
+  const edges = getBodyEdges(bodyShape, y);
+  const x = Math.max(edges.left + 4, 15);
+
+  return (
+    <g transform={`translate(${x}, ${y}) rotate(-14) scale(1.15)`}>
+      {/* Body + arms */}
+      <ellipse cx="0" cy="4" rx="5.2" ry="5.6" fill={TEDDY} stroke={TEDDY_EDGE} strokeWidth="0.9" />
+      <circle cx="-5" cy="3" r="2.2" fill={TEDDY} stroke={TEDDY_EDGE} strokeWidth="0.8" />
+      <circle cx="5" cy="3" r="2.2" fill={TEDDY} stroke={TEDDY_EDGE} strokeWidth="0.8" />
+      {/* Ears */}
+      <circle cx="-4.2" cy="-8.6" r="2.6" fill={TEDDY} stroke={TEDDY_EDGE} strokeWidth="0.8" />
+      <circle cx="4.2" cy="-8.6" r="2.6" fill={TEDDY} stroke={TEDDY_EDGE} strokeWidth="0.8" />
+      {/* Head */}
+      <circle cx="0" cy="-5.5" r="5.4" fill={TEDDY} stroke={TEDDY_EDGE} strokeWidth="0.9" />
+      <ellipse cx="0" cy="-3.6" rx="2.6" ry="2" fill="#F6E3CE" />
+      <circle cx="0" cy="-4.4" r="0.9" fill={TEDDY_EDGE} />
+      <circle cx="-2" cy="-7" r="0.8" fill="#4A3524" />
+      <circle cx="2" cy="-7" r="0.8" fill="#4A3524" />
+    </g>
+  );
+}
+
+/** Stacking blocks — held at the body's right side. */
+function Blocks({ bodyShape, eyes }: PartProps) {
+  const y = mouthLine(eyes) + 16;
+  const edges = getBodyEdges(bodyShape, y);
+  const x = Math.min(edges.right - 4, 79);
+
+  return (
+    <g transform={`translate(${x}, ${y}) rotate(9) scale(1.1)`}>
+      {/* Lower block */}
+      <rect x="-6" y="0" width="12" height="12" rx="2.4" fill={BLUE} stroke={BLUE_EDGE} strokeWidth="1" />
+      <text
+        x="0"
+        y="9"
+        fontSize="8.5"
+        fontWeight="bold"
+        fontFamily="system-ui, sans-serif"
+        fill="#FFFFFF"
+        textAnchor="middle"
+      >
+        B
+      </text>
+      {/* Upper block, offset like a real stack */}
+      <rect x="-4.6" y="-9.6" width="9.6" height="9.6" rx="2" fill={CREAM} stroke={CREAM_EDGE} strokeWidth="1" />
+      <text
+        x="0.2"
+        y="-2.4"
+        fontSize="7"
+        fontWeight="bold"
+        fontFamily="system-ui, sans-serif"
+        fill={CREAM_EDGE}
+        textAnchor="middle"
+      >
+        A
+      </text>
     </g>
   );
 }

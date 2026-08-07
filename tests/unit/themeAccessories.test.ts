@@ -38,11 +38,22 @@ describe("generateThemeAccessories", () => {
     }
   });
 
-  test("never exceeds the theme's max count", () => {
+  test("never exceeds the theme's max count, plus its always-on items", () => {
+    const ceiling =
+      babyShower.blobAccessories.maxCount +
+      (babyShower.blobAccessories.always?.length ?? 0);
+
     for (const name of NAMES) {
-      expect(accessoriesFor(name).length).toBeLessThanOrEqual(
-        babyShower.blobAccessories.maxCount
-      );
+      expect(accessoriesFor(name).length).toBeLessThanOrEqual(ceiling);
+    }
+  });
+
+  test("gives every blob the theme's always-on items", () => {
+    for (const name of NAMES) {
+      const ids = accessoriesFor(name).map((a) => a.id);
+      for (const item of babyShower.blobAccessories.always ?? []) {
+        expect(ids).toContain(item.id);
+      }
     }
   });
 
@@ -54,8 +65,16 @@ describe("generateThemeAccessories", () => {
     }
   });
 
-  test("renders back-to-front: bottom, chest, hands, then mouth", () => {
-    const order = ["bottom", "chest", "hand-left", "hand-right", "mouth"];
+  test("renders back-to-front: body, hands, face, then head", () => {
+    const order = [
+      "bottom",
+      "chest",
+      "hand-left",
+      "hand-right",
+      "cheeks",
+      "mouth",
+      "head",
+    ];
 
     for (const name of NAMES) {
       const indices = accessoriesFor(name).map((a) => order.indexOf(a.slot));
@@ -115,11 +134,33 @@ describe("generateThemeAccessories", () => {
 });
 
 describe("theme registry", () => {
-  test("every themed accessory has a unique slot within its theme", () => {
+  test("no theme lists the same accessory twice", () => {
     for (const theme of Object.values(THEMES)) {
-      const slots = theme.blobAccessories.pool.map((a) => a.slot);
+      const ids = [
+        ...(theme.blobAccessories.always ?? []),
+        ...theme.blobAccessories.pool,
+      ].map((a) => a.id);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
+  });
+
+  test("always-on items never compete for the same slot", () => {
+    for (const theme of Object.values(THEMES)) {
+      const slots = (theme.blobAccessories.always ?? []).map((a) => a.slot);
       expect(new Set(slots).size).toBe(slots.length);
     }
+  });
+
+  test("a slot with several candidates actually varies between players", () => {
+    // The pool offers a rattle or a teddy in the left hand; across a roster
+    // both should show up, otherwise the alternates are dead weight.
+    const heldLeft = new Set(
+      NAMES.map(
+        (name) => accessoriesFor(name).find((a) => a.slot === "hand-left")?.id
+      ).filter(Boolean)
+    );
+
+    expect(heldLeft.size).toBeGreaterThan(1);
   });
 
   test("themes never change the base blob", () => {

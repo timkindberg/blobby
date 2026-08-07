@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react";
 import { Blob } from "./Blob";
 import { generateBlob } from "../lib/blobGenerator";
+import { useTheme } from "../theme";
 import type { QuestionPhase } from "../../lib/ropeTypes";
 
 export interface RopePlayer {
@@ -77,7 +78,10 @@ export const Rope = memo(function Rope({
   const rungWidth = 3 * scale; // Width of the horizontal rungs
 
   // Rope colors (solid colors for better visibility on vertical lines)
-  const ropeColor = "#A67C3D"; // Tan/brown rope color
+  // Neutral ladder colors come from the theme (hemp for classic, candy stripe
+  // for baby); the reveal states below stay semantic.
+  const { rope: ropePalette } = useTheme().mountain;
+  const ropeColor = ropePalette.rail;
   const ropeColorDark = "#8B6914"; // Darker shade for shadow/depth
   const ropeColorCorrect = "#22c55e"; // Green for correct
   const ropeColorWrong = "#8b8b8b"; // Gray for wrong
@@ -349,7 +353,7 @@ export const Rope = memo(function Rope({
                 y1={rungY}
                 x2={rightRopeX}
                 y2={rungY}
-                stroke={isCorrect ? "#166534" : "#7a6540"}
+                stroke={isCorrect ? "#166534" : ropePalette.rung}
                 strokeWidth={rungWidth}
                 strokeLinecap="round"
               />
@@ -386,6 +390,10 @@ export const RopeAnswerLabel = memo(function RopeAnswerLabel({
 }) {
   const isCorrect = revealState === "correct";
   const isWrong = revealState === "wrong";
+  // Un-revealed pills follow the theme's sky panel, so a pastel mountain
+  // doesn't get four slabs of alpine navy hanging off its summit. Correct and
+  // wrong keep their semantic green/red in every theme.
+  const { skyPanel } = useTheme().mountain;
 
   // Hidden during question_shown phase - only show once answers are revealed
   if (questionPhase === "question_shown") return null;
@@ -412,13 +420,13 @@ export const RopeAnswerLabel = memo(function RopeAnswerLabel({
             ? "rgba(22, 101, 52, 0.95)"
             : isWrong
             ? "rgba(127, 29, 29, 0.9)"
-            : "rgba(30, 41, 59, 0.95)",
+            : skyPanel.background,
           border: `2px solid ${
             isCorrect
               ? "rgba(74, 222, 128, 0.6)"
               : isWrong
               ? "rgba(248, 113, 113, 0.4)"
-              : "rgba(99, 102, 241, 0.5)"
+              : skyPanel.border
           }`,
           boxShadow: "0 4px 8px rgba(0, 0, 0, 0.3)",
           maxWidth: "min(25vw, 280px)",
@@ -440,7 +448,7 @@ export const RopeAnswerLabel = memo(function RopeAnswerLabel({
               ? "#86efac"
               : isWrong
               ? "rgba(252, 165, 165, 0.7)"
-              : "rgba(255, 255, 255, 0.6)",
+              : skyPanel.title,
             marginBottom: "4px",
           }}
         >
@@ -454,7 +462,7 @@ export const RopeAnswerLabel = memo(function RopeAnswerLabel({
               fontSize: "14px",
               fontWeight: 600,
               fontFamily: "system-ui, sans-serif",
-              color: isCorrect ? "#4ade80" : isWrong ? "#fca5a5" : "white",
+              color: isCorrect ? "#4ade80" : isWrong ? "#fca5a5" : skyPanel.text,
               textDecoration: isWrong ? "line-through" : "none",
               textAlign: "center",
               lineHeight: 1.3,

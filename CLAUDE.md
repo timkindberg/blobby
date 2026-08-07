@@ -173,8 +173,12 @@ ropes, blobs). Only the theme *id* is stored on the session; the look lives in
 - Views push the session's theme into the provider with `useApplyTheme(session?.theme)`.
 - Themed blob accessories are deterministic from `name + themeId`, on a
   separate seed stream so a theme never changes the base blob.
-- Accessories occupy one "slot" each (bottom / chest / hands / mouth) so picks
-  can't overlap, and can declare `conflictsWith` base accessories.
+- Accessories occupy one "slot" each (bottom / chest / hands / cheeks / mouth /
+  head) so picks can't overlap, and can declare `conflictsWith` base
+  accessories. A pool may offer several candidates per slot for variety, and
+  `always` items (e.g. the baby theme's rosy cheeks) are worn by every blob.
+- A theme may also swap the game's sounds via `soundPack` (see
+  `src/lib/babySounds.ts`); the provider applies it alongside the palette.
 
 **Adding a theme**: add an id to `lib/themes.ts`, add the literal to
 `themeValidator` in `convex/schema.ts` (a compile-time guard fails until you
