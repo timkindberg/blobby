@@ -292,7 +292,7 @@ export function Mountain({
           y={elevationToY(SUMMIT)}
           width={width * 0.4}
           height={height - elevationToY(SUMMIT)}
-          fill="url(#rock-shadow-${mode})"
+          fill={`url(#rock-shadow-${mode})`}
           opacity="0.5"
         />
 

@@ -5,6 +5,13 @@
  * Same name = same blob every time.
  */
 
+import type { ThemeId } from "../../lib/themes";
+import type {
+  ThemeAccessorySlot,
+  ThemeAccessorySpec,
+  ThemeBlobAccessories,
+} from "../theme/types";
+
 export interface BlobConfig {
   name: string;
   body: {
@@ -93,6 +100,15 @@ function pick<T>(arr: readonly T[], random: () => number): T {
 }
 
 /**
+ * Get a display-safe name: trimmed and truncated with ellipsis if over 10 chars
+ */
+export function getDisplayName(name: string, maxLength = 10): string {
+  const trimmed = name.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return trimmed.slice(0, maxLength - 1) + "…";
+}
+
+/**
  * Generate a blob config from a player name
  */
 export function generateBlob(name: string): BlobConfig {
@@ -130,4 +146,85 @@ export function generateBlob(name: string): BlobConfig {
     accessory,
     seed,
   };
+}
+
+// Render order for themed accessories: back-to-front on the blob, so a bib
+// layers over a diaper and a binky stays on top of everything.
+const SLOT_RENDER_ORDER: Record<ThemeAccessorySlot, number> = {
+  bottom: 0,
+  chest: 1,
+  "hand-left": 2,
+  "hand-right": 3,
+  cheeks: 4,
+  mouth: 5,
+  head: 6,
+};
+
+/**
+ * Pick a blob's themed accessories — deterministic from the player name,
+ * exactly like the rest of its look.
+ *
+ * Seeded from `name + themeId` rather than reusing the base blob's seed, so:
+ *  - turning a theme on never changes the base blob (same name = same body,
+ *    eyes, hair, accessory as before), and
+ *  - two themes give the same player different-but-stable accessories.
+ *
+ * Picks are one-per-slot, so accessories never stack on the same spot, and
+ * anything that would collide with the blob's base accessory is dropped.
+ */
+export function generateThemeAccessories(
+  name: string,
+  themeId: ThemeId,
+  spec: ThemeBlobAccessories,
+  baseAccessory: Accessory
+): ThemeAccessorySpec[] {
+  const wearable = (item: ThemeAccessorySpec) =>
+    !item.conflictsWith?.includes(baseAccessory);
+
+  const bySlot = new Map<ThemeAccessorySlot, ThemeAccessorySpec>();
+
+  // Always-on items claim their slots first — a theme's signature detail
+  // shouldn't be at the mercy of the dice.
+  for (const item of spec.always ?? []) {
+    if (wearable(item) && !bySlot.has(item.slot)) bySlot.set(item.slot, item);
+  }
+
+  const available = spec.pool.filter(wearable);
+  if (available.length === 0 || spec.maxCount <= 0) {
+    return sortBySlot([...bySlot.values()]);
+  }
+
+  const random = seededRandom(hashString(`${name.toLowerCase().trim()}::${themeId}`));
+
+  // Shuffle a copy, then walk it — taking the first item for each new slot.
+  const shuffled = [...available];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
+  }
+
+  // A pool can offer several items per slot (rattle OR teddy in a hand), so
+  // the ceiling is the number of distinct fillable slots, not the pool size.
+  const fillableSlots = new Set(
+    available.map((item) => item.slot).filter((slot) => !bySlot.has(slot))
+  ).size;
+  const max = Math.min(spec.maxCount, fillableSlots);
+  const min = Math.max(0, Math.min(spec.minCount, max));
+  const count = min + Math.floor(random() * (max - min + 1));
+
+  const picked = new Set<ThemeAccessorySlot>();
+  for (const item of shuffled) {
+    if (picked.size >= count) break;
+    if (bySlot.has(item.slot)) continue; // taken by `always` or an earlier pick
+    bySlot.set(item.slot, item);
+    picked.add(item.slot);
+  }
+
+  return sortBySlot([...bySlot.values()]);
+}
+
+function sortBySlot(accessories: ThemeAccessorySpec[]): ThemeAccessorySpec[] {
+  return accessories.sort(
+    (a, b) => SLOT_RENDER_ORDER[a.slot] - SLOT_RENDER_ORDER[b.slot]
+  );
 }

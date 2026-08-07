@@ -77,8 +77,25 @@ Players are blob creatures racing to climb a mountain. Each question = choosing 
 ## Architecture
 
 ### Views
-- **Host View** - Create/manage sessions, display questions, show mountain with all climbers
-- **Player View** - Join sessions, answer questions, see personal progress on mountain
+- **Admin View** (`/admin`, `/host/:code/:token`) - Create/manage sessions, edit questions, kick players, drive the game
+- **Spectator View** (`/spectate/:code`) - The big screen / screen-shared view: mountain, question, climbers
+- **Player View** (`/play/:code`) - Join sessions, answer questions, see personal progress on mountain
+
+### Driving the game from the spectator screen
+
+Hosts present by screen-sharing the spectator view, so it can drive the game
+itself instead of needing a second device:
+
+- The viewer is treated as host when `session.hostId` matches the localStorage
+  host id (`src/lib/hostId.ts`). Convex mutations authorize on `hostId` too, so
+  this is UI gating over real auth, not instead of it.
+- The forward/back state machine lives in `src/hooks/useHostActions.ts`
+  (`useHostAction`, `useBackAction`, `useHostKeyboard`) and is shared with the
+  admin view - add new phases there, not in a view.
+- Keys: <kbd>Space</kbd> / <kbd>Enter</kbd> / <kbd>→</kbd> advance,
+  <kbd>←</kbd> / <kbd>Backspace</kbd> rewind. Destructive steps still confirm.
+- Admin and spectator navigate in the same tab (Spectate ⇄ Manage), so only one
+  is open at a time.
 
 ### Requirements
 - Support 50+ concurrent players per session
@@ -90,17 +107,26 @@ Players are blob creatures racing to climb a mountain. Each question = choosing 
 
 ```
 lib/                      # Shared code (imported by both src/ and convex/)
-└── elevation.ts          # Elevation/scoring calculations
+├── elevation.ts          # Elevation/scoring calculations
+└── themes.ts             # Theme ids (the only theme data the backend knows)
 
 src/
-├── main.tsx              # Entry point with Convex provider
+├── main.tsx              # Entry point with Convex + Theme providers
 ├── App.tsx               # Mode selection (host/player)
 ├── index.css             # Global styles
 ├── lib/
-│   └── blobGenerator.ts  # Deterministic avatar generation
+│   └── blobGenerator.ts  # Deterministic avatar + themed accessory generation
+├── theme/                # Visual themes (see Theming below)
+│   ├── types.ts          # Theme/palette contract
+│   ├── registry.ts       # Theme lookup
+│   ├── ThemeContext.tsx  # ThemeProvider, useTheme, useApplyTheme
+│   ├── themes.css        # DOM chrome skins ([data-theme="..."])
+│   └── themes/           # One file per theme
 ├── components/
 │   ├── Blob.tsx          # SVG blob renderer
-│   ├── BlobGallery.tsx   # Blob preview gallery
+│   ├── blobGeometry.ts   # Shared body geometry for blob parts
+│   ├── BlobThemeAccessories.tsx # Themed blob accessories
+│   ├── BlobGallery.tsx   # Blob preview gallery (has a theme switcher)
 │   └── Mountain.tsx      # Mountain visualization with players
 └── views/
     ├── HostView.tsx      # Host session management
@@ -134,6 +160,30 @@ lib/ ←── convex/ imports from here
 ```
 
 **Rule**: `convex/` and `src/` can both import from `lib/`, but `lib/` should never import from either.
+
+### Theming
+
+The host picks a session theme; every participant sees it. Themes are **purely
+cosmetic** — they recolor visuals and add decorative blob accessories, and must
+never remove or move a gameplay visual (checkpoint lines, elevation labels,
+ropes, blobs). Only the theme *id* is stored on the session; the look lives in
+`src/theme/themes/`.
+
+- Components read the theme from context (`useTheme()`), not props.
+- Views push the session's theme into the provider with `useApplyTheme(session?.theme)`.
+- Themed blob accessories are deterministic from `name + themeId`, on a
+  separate seed stream so a theme never changes the base blob.
+- Accessories occupy one "slot" each (bottom / chest / hands / cheeks / mouth /
+  head) so picks can't overlap, and can declare `conflictsWith` base
+  accessories. A pool may offer several candidates per slot for variety, and
+  `always` items (e.g. the baby theme's rosy cheeks) are worn by every blob.
+- A theme may also swap the game's sounds via `soundPack` (see
+  `src/lib/babySounds.ts`); the provider applies it alongside the palette.
+
+**Adding a theme**: add an id to `lib/themes.ts`, add the literal to
+`themeValidator` in `convex/schema.ts` (a compile-time guard fails until you
+do), then add a `Theme` file under `src/theme/themes/` and register it in
+`src/theme/registry.ts`. Preview blobs at `/blobs`.
 
 ## Commands
 
@@ -251,3 +301,4 @@ You are a **subagent** - an implementation worker, not the tech lead. Your rules
 - [ ] Polish host view (full chaos mode)
 - [ ] Polish player view (reactive chaos)
 - [x] Add checkpoints/camps visual markers
+- [x] Theme system (classic + baby shower)

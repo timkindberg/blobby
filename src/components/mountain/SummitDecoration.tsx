@@ -1,3 +1,4 @@
+import { useTheme } from "../../theme";
 import type { MountainMode, SkyQuestion } from "./types";
 import { wrapText } from "./terrain";
 
@@ -21,6 +22,7 @@ export function SummitDecoration({
   const sunSize = mode === "admin-preview" ? 15 : mode === "spectator" ? 35 : 25;
   const cloudScale = mode === "admin-preview" ? 0.4 : mode === "spectator" ? 1 : 0.7;
   const midX = width / 2;
+  const { mountain } = useTheme();
 
   // Calculate peak position (where the mountain tip would be)
   // Move down enough to ensure flag is visible (flag extends ~42px above peak in spectator mode)
@@ -58,7 +60,7 @@ export function SummitDecoration({
            L${width} ${summitY}
            L${width} ${summitY + 30}
            L0 ${summitY + 30} Z`}
-        fill="#9EB3C8"
+        fill={mountain.distantMountains[0]}
         opacity="0.35"
       />
       {/* Near layer */}
@@ -74,7 +76,7 @@ export function SummitDecoration({
            L${width} ${summitY + 8}
            L${width} ${summitY + 25}
            L0 ${summitY + 25} Z`}
-        fill="#8BA3B8"
+        fill={mountain.distantMountains[1]}
         opacity="0.45"
       />
 
@@ -88,7 +90,7 @@ export function SummitDecoration({
             y1={topY + sunSize + 15}
             x2={width * 0.88 + Math.cos((angle * Math.PI) / 180) * sunSize * 1.8}
             y2={topY + sunSize + 15 + Math.sin((angle * Math.PI) / 180) * sunSize * 1.8}
-            stroke="#FFD700"
+            stroke={mountain.sun.rays}
             strokeWidth={mode === "admin-preview" ? 1 : 2}
             opacity="0.4"
           />
@@ -105,7 +107,7 @@ export function SummitDecoration({
           cx={width * 0.88}
           cy={topY + sunSize + 15}
           r={sunSize * 0.65}
-          fill="#FFF8DC"
+          fill={mountain.sun.core}
         />
       </g>
 
@@ -169,6 +171,7 @@ function SkyQuestionDisplay({
 
   // Calculate max text width for wrapping
   const maxTextWidth = width * 0.8;
+  const { skyPanel } = useTheme().mountain;
 
   // Estimate number of lines for question (rough calculation)
   const charsPerLine = Math.floor(maxTextWidth / (fontSize * 0.5));
@@ -194,8 +197,8 @@ function SkyQuestionDisplay({
         height={bgHeight}
         rx={12}
         ry={12}
-        fill="rgba(0, 20, 50, 0.55)"
-        stroke="rgba(255, 255, 255, 0.15)"
+        fill={skyPanel.background}
+        stroke={skyPanel.border}
         strokeWidth={1}
       />
 
@@ -204,7 +207,7 @@ function SkyQuestionDisplay({
         x={midX}
         y={questionY - fontSize - 5}
         textAnchor="middle"
-        fill="rgba(255,255,255,0.8)"
+        fill={skyPanel.title}
         fontSize={smallFontSize}
         fontWeight="600"
         style={{ textTransform: "uppercase", letterSpacing: "0.1em" }}
@@ -237,7 +240,7 @@ function SkyQuestionDisplay({
         x={midX}
         y={questionY}
         textAnchor="middle"
-        fill="white"
+        fill={skyPanel.text}
         fontSize={fontSize}
         fontWeight="700"
         style={{
@@ -258,7 +261,7 @@ function SkyQuestionDisplay({
           x={midX}
           y={questionY + questionLines * lineHeight + 30}
           textAnchor="middle"
-          fill="rgba(255,255,255,0.7)"
+          fill={skyPanel.title}
           fontSize={smallFontSize * 1.2}
           fontStyle="italic"
         >
@@ -285,6 +288,7 @@ function SummitFlag({
   const poleHeight = 35 * scale;
   const flagWidth = 25 * scale;
   const flagHeight = 18 * scale;
+  const { flag } = useTheme().mountain;
 
   return (
     <g>
@@ -304,7 +308,7 @@ function SummitFlag({
         y1={y}
         x2={x}
         y2={y - poleHeight}
-        stroke="#5C4033"
+        stroke={flag.pole}
         strokeWidth={2.5 * scale}
         strokeLinecap="round"
       />
@@ -319,7 +323,7 @@ function SummitFlag({
            Q ${x + flagWidth * 0.4} ${y - poleHeight + flagHeight + 2}
              ${x} ${y - poleHeight + flagHeight}
            Z`}
-        fill="#E63946"
+        fill={flag.fabric}
       />
       {/* Flag highlight */}
       <path
@@ -330,7 +334,7 @@ function SummitFlag({
            Q ${x + flagWidth * 0.2} ${y - poleHeight + flagHeight * 0.3}
              ${x} ${y - poleHeight + flagHeight * 0.5}
            Z`}
-        fill="#F4A4A8"
+        fill={flag.highlight}
         opacity="0.5"
       />
       {/* Pole top ornament */}
@@ -338,7 +342,7 @@ function SummitFlag({
         cx={x}
         cy={y - poleHeight - 2 * scale}
         r={3 * scale}
-        fill="#FFD700"
+        fill={flag.finial}
       />
     </g>
   );
@@ -348,18 +352,20 @@ function SummitFlag({
  * Fluffy cloud shape with depth
  */
 function Cloud({ x, y, scale, opacity = 0.95 }: { x: number; y: number; scale: number; opacity?: number }) {
+  const { cloud } = useTheme().mountain;
+
   return (
     <g transform={`translate(${x}, ${y}) scale(${scale})`} opacity={opacity}>
       {/* Shadow layer */}
-      <ellipse cx="2" cy="8" rx="26" ry="14" fill="rgba(150,180,200,0.3)" />
+      <ellipse cx="2" cy="8" rx="26" ry="14" fill={cloud.shadow} />
       {/* Main cloud body */}
-      <ellipse cx="0" cy="0" rx="24" ry="14" fill="white" opacity="0.95" />
-      <ellipse cx="-18" cy="4" rx="16" ry="11" fill="white" opacity="0.95" />
-      <ellipse cx="18" cy="3" rx="18" ry="12" fill="white" opacity="0.95" />
-      <ellipse cx="8" cy="-6" rx="14" ry="9" fill="white" opacity="0.95" />
-      <ellipse cx="-8" cy="-4" rx="12" ry="8" fill="white" opacity="0.95" />
+      <ellipse cx="0" cy="0" rx="24" ry="14" fill={cloud.body} opacity="0.95" />
+      <ellipse cx="-18" cy="4" rx="16" ry="11" fill={cloud.body} opacity="0.95" />
+      <ellipse cx="18" cy="3" rx="18" ry="12" fill={cloud.body} opacity="0.95" />
+      <ellipse cx="8" cy="-6" rx="14" ry="9" fill={cloud.body} opacity="0.95" />
+      <ellipse cx="-8" cy="-4" rx="12" ry="8" fill={cloud.body} opacity="0.95" />
       {/* Highlight layer */}
-      <ellipse cx="-5" cy="-8" rx="10" ry="5" fill="white" opacity="1" />
+      <ellipse cx="-5" cy="-8" rx="10" ry="5" fill={cloud.body} opacity="1" />
     </g>
   );
 }

@@ -1,4 +1,5 @@
 import { SUMMIT } from "../../../lib/elevation";
+import { useTheme } from "../../theme";
 import type { MountainMode } from "./types";
 import { seededRandom, generateJaggedEdge } from "./terrain";
 
@@ -124,6 +125,7 @@ function SnowCap({
   const snowDepth = 50; // How far down the snow extends from summit
   const midX = width / 2;
   const random = seededRandom(99999);
+  const { mountain } = useTheme();
 
   // Generate irregular snow line (bottom edge of snow)
   const generateSnowLine = (startX: number, endX: number, baseY: number): string => {
@@ -191,7 +193,7 @@ function SnowCap({
               L ${midX - peakWidth * 0.5},${tipY + (summitY - tipY) * 0.3}
               Q ${midX},${tipY + (summitY - tipY) * 0.2} ${midX + peakWidth * 0.4},${tipY + (summitY - tipY) * 0.25}
               Z`}
-          fill="white"
+          fill={mountain.snowHighlight}
           opacity="0.5"
         />
       </g>

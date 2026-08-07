@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react";
 import { Blob } from "./Blob";
 import { generateBlob } from "../lib/blobGenerator";
+import { useTheme } from "../theme";
 import type { QuestionPhase } from "../../lib/ropeTypes";
 
 export interface RopePlayer {
@@ -18,7 +19,7 @@ export type RevealPhase = "pending" | "scissors" | "snipping" | "complete";
 interface RopeProps {
   /** Label for the rope (A, B, C, D) */
   label: string;
-  /** Answer text for this rope option */
+  /** Answer text for this rope option (rendered by RopeAnswerLabel, not here) */
   optionText?: string;
   /** X position of the rope center */
   x: number;
@@ -54,31 +55,39 @@ interface RopeProps {
  */
 export const Rope = memo(function Rope({
   label,
-  optionText,
   x,
   topY,
   bottomY,
+  playerSize,
   revealState = "pending",
   cutY,
   revealPhase = "pending",
-  questionPhase,
 }: RopeProps) {
   const ropeHeight = bottomY - topY;
 
+  // Ladders scale with the climbers on them, so a big-screen spectator view
+  // gets a chunky ladder that reads from across a room. Clamped at 1 so the
+  // player view (40px blobs) and admin preview keep their original geometry.
+  const scale = Math.max(1, playerSize / 40);
+
   // Ladder dimensions
-  const ladderWidth = 24; // Total width of the ladder
+  const ladderWidth = 24 * scale; // Total width of the ladder
   const leftRopeX = x - ladderWidth / 2; // Left vertical rope position
   const rightRopeX = x + ladderWidth / 2; // Right vertical rope position
-  const verticalRopeWidth = 4; // Width of vertical rope strokes (increased for visibility)
+  const verticalRopeWidth = 4 * scale; // Width of vertical rope strokes (increased for visibility)
+  const rungWidth = 3 * scale; // Width of the horizontal rungs
 
   // Rope colors (solid colors for better visibility on vertical lines)
-  const ropeColor = "#A67C3D"; // Tan/brown rope color
+  // Neutral ladder colors come from the theme (hemp for classic, candy stripe
+  // for baby); the reveal states below stay semantic.
+  const { rope: ropePalette } = useTheme().mountain;
+  const ropeColor = ropePalette.rail;
   const ropeColorDark = "#8B6914"; // Darker shade for shadow/depth
   const ropeColorCorrect = "#22c55e"; // Green for correct
   const ropeColorWrong = "#8b8b8b"; // Gray for wrong
 
-  // Calculate rung positions (every 20px for better density)
-  const rungSpacing = 20;
+  // Calculate rung positions (every 20px at 1x for better density)
+  const rungSpacing = 20 * scale;
   const numRungs = Math.max(1, Math.floor(ropeHeight / rungSpacing));
   const rungs = useMemo(() => {
     return Array.from({ length: numRungs }, (_, i) => topY + i * rungSpacing + rungSpacing / 2);
@@ -181,7 +190,7 @@ export const Rope = memo(function Rope({
                   x2={rightRopeX}
                   y2={rungY + 1}
                   stroke="rgba(0,0,0,0.2)"
-                  strokeWidth="3"
+                  strokeWidth={rungWidth}
                   strokeLinecap="round"
                 />
                 {/* Rung */}
@@ -191,7 +200,7 @@ export const Rope = memo(function Rope({
                   x2={rightRopeX}
                   y2={rungY}
                   stroke="#6b6b6b"
-                  strokeWidth="3"
+                  strokeWidth={rungWidth}
                   strokeLinecap="round"
                 />
               </g>
@@ -263,7 +272,7 @@ export const Rope = memo(function Rope({
                   x2={rightRopeX}
                   y2={rungY + 1}
                   stroke="rgba(0,0,0,0.2)"
-                  strokeWidth="3"
+                  strokeWidth={rungWidth}
                   strokeLinecap="round"
                 />
                 {/* Rung */}
@@ -273,7 +282,7 @@ export const Rope = memo(function Rope({
                   x2={rightRopeX}
                   y2={rungY}
                   stroke="#6b6b6b"
-                  strokeWidth="3"
+                  strokeWidth={rungWidth}
                   strokeLinecap="round"
                 />
               </g>
@@ -335,7 +344,7 @@ export const Rope = memo(function Rope({
                 x2={rightRopeX}
                 y2={rungY + 1}
                 stroke="rgba(0,0,0,0.2)"
-                strokeWidth="3"
+                strokeWidth={rungWidth}
                 strokeLinecap="round"
               />
               {/* Rung */}
@@ -344,8 +353,8 @@ export const Rope = memo(function Rope({
                 y1={rungY}
                 x2={rightRopeX}
                 y2={rungY}
-                stroke={isCorrect ? "#166534" : "#7a6540"}
-                strokeWidth="3"
+                stroke={isCorrect ? "#166534" : ropePalette.rung}
+                strokeWidth={rungWidth}
                 strokeLinecap="round"
               />
             </g>
@@ -353,118 +362,151 @@ export const Rope = memo(function Rope({
         </>
       )}
 
-      {/* Answer label at top of rope - shows letter and full answer text */}
-      {/* Hidden during question_shown phase - only show once answers are revealed */}
-      {/* Using foreignObject with HTML for proper text wrapping */}
-      {questionPhase !== "question_shown" && (
-        <foreignObject
-          x={x - 150}
-          y={topY - 95}
-          width="300"
-          height="90"
-          style={{ overflow: "visible" }}
-        >
-          <div
-            className={`rope-answer-label ${isCorrect ? "rope-answer-label-correct" : ""} ${isWrong ? "rope-answer-label-wrong" : ""}`}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "8px 12px",
-              borderRadius: "10px",
-              background: isCorrect
-                ? "rgba(22, 101, 52, 0.95)"
-                : isWrong
-                ? "rgba(127, 29, 29, 0.9)"
-                : "rgba(30, 41, 59, 0.95)",
-              border: `2px solid ${
-                isCorrect
-                  ? "rgba(74, 222, 128, 0.6)"
-                  : isWrong
-                  ? "rgba(248, 113, 113, 0.4)"
-                  : "rgba(99, 102, 241, 0.5)"
-              }`,
-              boxShadow: "0 4px 8px rgba(0, 0, 0, 0.3)",
-              maxWidth: "min(25vw, 280px)",
-              minWidth: "80px",
-              width: "fit-content",
-              margin: "0 auto",
-              boxSizing: "border-box",
-            }}
-          >
-            {/* Letter indicator */}
-            <span
-              style={{
-                fontSize: "11px",
-                fontWeight: 600,
-                fontFamily: "system-ui, sans-serif",
-                textTransform: "uppercase",
-                letterSpacing: "0.1em",
-                color: isCorrect
-                  ? "#86efac"
-                  : isWrong
-                  ? "rgba(252, 165, 165, 0.7)"
-                  : "rgba(255, 255, 255, 0.6)",
-                marginBottom: "4px",
-              }}
-            >
-              {label}
-            </span>
-
-            {/* Answer text - wraps to multiple lines */}
-            {optionText && (
-              <span
-                style={{
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  fontFamily: "system-ui, sans-serif",
-                  color: isCorrect ? "#4ade80" : isWrong ? "#fca5a5" : "white",
-                  textDecoration: isWrong ? "line-through" : "none",
-                  textAlign: "center",
-                  lineHeight: 1.3,
-                  display: "-webkit-box",
-                  WebkitLineClamp: 3,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                  wordBreak: "break-word",
-                }}
-              >
-                {optionText}
-              </span>
-            )}
-
-            {/* Checkmark or X indicator after reveal */}
-            {isCorrect && (
-              <span
-                style={{
-                  fontSize: "14px",
-                  fontWeight: "bold",
-                  color: "#4ade80",
-                  marginTop: "4px",
-                }}
-              >
-                ✓ Correct!
-              </span>
-            )}
-            {isWrong && (
-              <span
-                style={{
-                  fontSize: "12px",
-                  fontWeight: "bold",
-                  color: "#f87171",
-                  marginTop: "2px",
-                }}
-              >
-                ✗
-              </span>
-            )}
-          </div>
-        </foreignObject>
-      )}
     </g>
   );
 });
+
+/**
+ * Answer label that hangs above the top of a rope.
+ *
+ * Deliberately rendered in its own SVG layer (not inside <Rope>) so views can
+ * stack it independently: on the spectator screen the labels sit above the
+ * question card, while the ladders stay behind the climbers.
+ */
+export const RopeAnswerLabel = memo(function RopeAnswerLabel({
+  label,
+  optionText,
+  x,
+  topY,
+  revealState = "pending",
+  questionPhase,
+}: {
+  label: string;
+  optionText?: string;
+  x: number;
+  topY: number;
+  revealState?: RopeRevealState;
+  questionPhase?: QuestionPhase;
+}) {
+  const isCorrect = revealState === "correct";
+  const isWrong = revealState === "wrong";
+  // Un-revealed pills follow the theme's sky panel, so a pastel mountain
+  // doesn't get four slabs of alpine navy hanging off its summit. Correct and
+  // wrong keep their semantic green/red in every theme.
+  const { skyPanel } = useTheme().mountain;
+
+  // Hidden during question_shown phase - only show once answers are revealed
+  if (questionPhase === "question_shown") return null;
+
+  // Using foreignObject with HTML for proper text wrapping
+  return (
+    <foreignObject
+      x={x - 150}
+      y={topY - 95}
+      width="300"
+      height="90"
+      style={{ overflow: "visible" }}
+    >
+      <div
+        className={`rope-answer-label ${isCorrect ? "rope-answer-label-correct" : ""} ${isWrong ? "rope-answer-label-wrong" : ""}`}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "8px 12px",
+          borderRadius: "10px",
+          background: isCorrect
+            ? "rgba(22, 101, 52, 0.95)"
+            : isWrong
+            ? "rgba(127, 29, 29, 0.9)"
+            : skyPanel.background,
+          border: `2px solid ${
+            isCorrect
+              ? "rgba(74, 222, 128, 0.6)"
+              : isWrong
+              ? "rgba(248, 113, 113, 0.4)"
+              : skyPanel.border
+          }`,
+          boxShadow: "0 4px 8px rgba(0, 0, 0, 0.3)",
+          maxWidth: "min(25vw, 280px)",
+          minWidth: "80px",
+          width: "fit-content",
+          margin: "0 auto",
+          boxSizing: "border-box",
+        }}
+      >
+        {/* Letter indicator */}
+        <span
+          style={{
+            fontSize: "11px",
+            fontWeight: 600,
+            fontFamily: "system-ui, sans-serif",
+            textTransform: "uppercase",
+            letterSpacing: "0.1em",
+            color: isCorrect
+              ? "#86efac"
+              : isWrong
+              ? "rgba(252, 165, 165, 0.7)"
+              : skyPanel.title,
+            marginBottom: "4px",
+          }}
+        >
+          {label}
+        </span>
+
+        {/* Answer text - wraps to multiple lines */}
+        {optionText && (
+          <span
+            style={{
+              fontSize: "14px",
+              fontWeight: 600,
+              fontFamily: "system-ui, sans-serif",
+              color: isCorrect ? "#4ade80" : isWrong ? "#fca5a5" : skyPanel.text,
+              textDecoration: isWrong ? "line-through" : "none",
+              textAlign: "center",
+              lineHeight: 1.3,
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              wordBreak: "break-word",
+            }}
+          >
+            {optionText}
+          </span>
+        )}
+
+        {/* Checkmark or X indicator after reveal */}
+        {isCorrect && (
+          <span
+            style={{
+              fontSize: "14px",
+              fontWeight: "bold",
+              color: "#4ade80",
+              marginTop: "4px",
+            }}
+          >
+            ✓ Correct!
+          </span>
+        )}
+        {isWrong && (
+          <span
+            style={{
+              fontSize: "12px",
+              fontWeight: "bold",
+              color: "#f87171",
+              marginTop: "2px",
+            }}
+          >
+            ✗
+          </span>
+        )}
+      </div>
+    </foreignObject>
+  );
+});
+
 
 /** State of the climber after reveal */
 export type ClimberRevealState = "climbing" | "celebrating" | "falling" | "landed";

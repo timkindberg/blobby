@@ -1,0 +1,114 @@
+/* ============================================
+   THEME SKINS (DOM chrome)
+
+   SVG game visuals are themed in JS via the palette in src/theme/themes/.
+   This file only handles the surrounding page chrome, keyed off the
+   data-theme attribute ThemeProvider writes onto <html>.
+
+   Keep selectors specific enough to beat the base rules in index.css but
+   below component classes (.header-btn.danger etc.) so semantic colors —
+   danger red, success green — survive theming.
+   ============================================ */
+
+/* ---------- Baby (stored id is still baby_shower) ---------- */
+
+html[data-theme="baby_shower"] body {
+  background: linear-gradient(180deg, #fff6fb 0%, #f4f0ff 55%, #eaf3ff 100%);
+}
+
+/* Soft rounded typeface for headings and buttons. All locally-installed
+   families with a system fallback - no webfont fetch, so the nursery look
+   degrades to plain system-ui rather than blocking render. */
+html[data-theme="baby_shower"] h1,
+html[data-theme="baby_shower"] h2,
+html[data-theme="baby_shower"] h3,
+html[data-theme="baby_shower"] button,
+html[data-theme="baby_shower"] .join-code,
+html[data-theme="baby_shower"] .spectator-title,
+html[data-theme="baby_shower"] .pregame-title {
+  font-family: "Baloo 2", "Quicksand", "Comic Sans MS", "Chalkboard SE",
+    "Marker Felt", system-ui, sans-serif;
+  letter-spacing: 0.01em;
+}
+
+html[data-theme="baby_shower"] h1,
+html[data-theme="baby_shower"] h2 {
+  color: #6b4f86;
+}
+
+/* Nothing sharp in a nursery */
+html[data-theme="baby_shower"] button,
+html[data-theme="baby_shower"] section,
+html[data-theme="baby_shower"] input,
+html[data-theme="baby_shower"] .spectator-start-button,
+html[data-theme="baby_shower"] .spectator-host-bar,
+html[data-theme="baby_shower"] .follow-up-card,
+html[data-theme="baby_shower"] .leaderboard-overlay {
+  border-radius: 22px;
+}
+
+/* The question card is dark navy by default - milk-white for the nursery */
+html[data-theme="baby_shower"] .spectator-question-overlay {
+  background: rgba(255, 252, 254, 0.92);
+  border-color: rgba(238, 133, 178, 0.45);
+  box-shadow: 0 8px 32px rgba(168, 123, 190, 0.25);
+}
+
+html[data-theme="baby_shower"] .spectator-question-text {
+  color: #4a3a63;
+  text-shadow: none;
+}
+
+html[data-theme="baby_shower"] .spectator-question-number,
+html[data-theme="baby_shower"] .spectator-question-hint {
+  color: #a87bbe;
+}
+
+/* Pastel host chrome on the shared screen */
+html[data-theme="baby_shower"] .spectator-start-button,
+html[data-theme="baby_shower"] .spectator-host-next {
+  background: linear-gradient(135deg, #ffa8cf, #c9a3f0);
+  box-shadow: 0 8px 24px rgba(255, 168, 207, 0.45);
+}
+
+html[data-theme="baby_shower"] section {
+  background: #fdf7fc;
+}
+
+html[data-theme="baby_shower"] .app p {
+  color: #7d6a92;
+}
+
+html[data-theme="baby_shower"] .mode-select .btn-primary {
+  background: #e58bb6;
+}
+
+html[data-theme="baby_shower"] .mode-select .btn-primary:hover {
+  background: #d5719f;
+}
+
+html[data-theme="baby_shower"] .mode-select .btn-secondary {
+  background: #e8e2ff;
+  color: #5a4680;
+}
+
+html[data-theme="baby_shower"] .mode-select .btn-secondary:hover {
+  background: #d9d0ff;
+}
+
+html[data-theme="baby_shower"] .mode-select .btn-ghost {
+  color: #8a6aa8;
+  border-color: #d3bde6;
+}
+
+html[data-theme="baby_shower"] .mode-select .btn-ghost:hover {
+  background: #f8f2ff;
+}
+
+html[data-theme="baby_shower"] .player-view {
+  background: #fffafd;
+}
+
+html[data-theme="baby_shower"] .admin-view {
+  background: #fdf8fc;
+}

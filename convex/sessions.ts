@@ -10,6 +10,7 @@ import {
 } from "./sampleQuestions";
 import { calculateElevationGain, SUMMIT, DEFAULT_SUMMIT_THRESHOLD } from "../lib/elevation";
 import { getEnabledQuestions } from "./helpers";
+import { themeValidator } from "./schema";
 
 // Validator for question categories
 const categoryValidator = v.union(
@@ -671,5 +672,23 @@ export const updateSummitThreshold = mutation({
     await ctx.db.patch(args.sessionId, {
       summitThreshold: args.summitThreshold,
     });
+  },
+});
+
+// Set the session's visual theme.
+// Themes are cosmetic only, so unlike other settings this is allowed at any
+// point — the host can flip the look mid-game and every client re-skins live.
+export const setTheme = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    hostId: v.string(),
+    theme: themeValidator,
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) throw new Error("Session not found");
+    if (args.hostId !== session.hostId) throw new Error("Unauthorized: not the session host");
+
+    await ctx.db.patch(args.sessionId, { theme: args.theme });
   },
 });

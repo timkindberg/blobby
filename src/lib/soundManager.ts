@@ -4,7 +4,11 @@
  * Uses Web Audio API for low-latency sound playback.
  * All sounds are generated procedurally using oscillators and noise.
  * Mute state is persisted to localStorage.
+ *
+ * Themes may swap the whole voice of the game via sound packs (see
+ * `setSoundPack` and src/lib/babySounds.ts).
  */
+import { playBabySound } from "./babySounds";
 
 // Sound types used in the game
 export type SoundType =
@@ -25,12 +29,19 @@ export type SoundType =
   | "blobAmbient" // Random ambient sounds for lobby (tiny chirps, boops, hums)
   | "scissorsSafe"; // Relief sound when scissors fade away from correct rope
 
+/**
+ * Which set of noises the game makes. Themes pick this - see Theme.soundPack -
+ * so a cosmetic theme can re-voice the whole game without touching callers.
+ */
+export type SoundPack = "classic" | "baby";
+
 const MUTE_STORAGE_KEY = "blobby_muted";
 
 interface SoundManagerState {
   audioContext: AudioContext | null;
   isMuted: boolean;
   isInitialized: boolean;
+  soundPack: SoundPack;
 }
 
 // Singleton state
@@ -38,10 +49,34 @@ const state: SoundManagerState = {
   audioContext: null,
   isMuted: loadMuteState(),
   isInitialized: false,
+  soundPack: "classic",
 };
+
+/** Switch sound packs. Deliberately not persisted - the session's theme owns it. */
+export function setSoundPack(pack: SoundPack): void {
+  state.soundPack = pack;
+}
+
+export function getSoundPack(): SoundPack {
+  return state.soundPack;
+}
 
 // Event listeners for mute state changes
 const muteListeners = new Set<(muted: boolean) => void>();
+
+/**
+ * Reset the sound manager state. Useful for testing.
+ */
+export function cleanup(): void {
+  if (state.audioContext) {
+    state.audioContext.close().catch(() => {});
+    state.audioContext = null;
+  }
+  state.isMuted = loadMuteState();
+  state.isInitialized = false;
+  state.soundPack = "classic";
+  muteListeners.clear();
+}
 
 /**
  * Load mute state from localStorage
@@ -1043,6 +1078,13 @@ export async function playSound(type: SoundType): Promise<void> {
 
   if (!state.audioContext) {
     initAudio();
+  }
+
+  // Themed packs get first refusal; anything they don't cover falls through
+  // to the default sound below.
+  if (state.soundPack === "baby") {
+    await ensureAudioResumed();
+    if (state.audioContext && playBabySound(state.audioContext, type)) return;
   }
 
   switch (type) {

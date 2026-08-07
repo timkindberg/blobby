@@ -1,5 +1,22 @@
 import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
+import type { ThemeId } from "../lib/themes";
+
+/**
+ * Visual theme for a session. Cosmetic only — see lib/themes.ts.
+ * Convex needs literal validators, so the union is spelled out here and
+ * kept honest by the compile-time guard below.
+ */
+export const themeValidator = v.union(v.literal("classic"), v.literal("baby_shower"));
+
+// Compile-time guard: fails to typecheck if lib/themes.ts and the validator drift apart.
+type ValidatorThemeId = Infer<typeof themeValidator>;
+const _themeIdsInSync: ValidatorThemeId extends ThemeId
+  ? ThemeId extends ValidatorThemeId
+    ? true
+    : never
+  : never = true;
+void _themeIdsInSync;
 
 export default defineSchema({
   // Survey sessions (rooms)
@@ -19,6 +36,7 @@ export default defineSchema({
       v.literal("results")          // Results screen showing stats
     )),
     summitThreshold: v.optional(v.number()), // Percentage of correct answers needed to summit (0-1, default 0.75)
+    theme: v.optional(themeValidator), // Visual theme for all participants (undefined = "classic")
     createdAt: v.number(),
   })
     .index("by_code", ["code"])

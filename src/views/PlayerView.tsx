@@ -17,6 +17,7 @@ import { generateBlob } from "../lib/blobGenerator";
 import { ErrorMessage } from "../components/ErrorMessage";
 import { ShareResults } from "../components/ShareResults";
 import { getFriendlyErrorMessage } from "../lib/errorMessages";
+import { useApplyTheme } from "../theme";
 
 /**
  * Get a deterministic idle animation class based on player name
@@ -63,6 +64,9 @@ export function PlayerView({ onBack, initialCode, initialName }: Props) {
     players, playerContext, leaderboardSummary,
     hasAnswered, timingInfo, questionPhase, shuffledAnswers,
   } = subs;
+
+  // --- Visual theme (host-controlled, applies to every participant) ---
+  useApplyTheme(session?.theme);
 
   // --- Result reveal timing (synced with scissors animation) ---
   const playerResultRevealed = useResultReveal({

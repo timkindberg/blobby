@@ -2,7 +2,7 @@ import { useMemo, memo, useState, useEffect, useRef } from "react";
 import { Blob } from "../Blob";
 import { generateBlob } from "../../lib/blobGenerator";
 import { SUMMIT } from "../../../lib/elevation";
-import { Rope, RopeClimber, type RopeRevealState, type ClimberRevealState, type RevealPhase } from "../Rope";
+import { Rope, RopeAnswerLabel, RopeClimber, type RopeRevealState, type ClimberRevealState, type RevealPhase } from "../Rope";
 import type { RopeClimbingState, RopeData, QuestionPhase } from "../../../lib/ropeTypes";
 import { playSound } from "../../lib/soundManager";
 import type { MountainMode, SizeConfig } from "./types";
@@ -307,8 +307,9 @@ export function RopesOverlay({
 
   return (
     <>
-      {/* Rope SVG layer */}
+      {/* Rope SVG layer - ladders only; labels are a separate layer below */}
       <svg
+        className="rope-svg-layer"
         width={width}
         height={height}
         style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none" }}
@@ -442,6 +443,28 @@ export function RopesOverlay({
           />
         );
       })}
+
+      {/* Answer labels live in their own layer, rendered after the climbers.
+          That lets the spectator view raise the labels above the question card
+          while the ladders stay behind the blobs (see SpectatorView.css). */}
+      <svg
+        className="rope-labels-layer"
+        width={width}
+        height={height}
+        style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none" }}
+      >
+        {ropes.map((rope, i) => (
+          <RopeAnswerLabel
+            key={i}
+            label={ropeLabels[i] ?? "?"}
+            optionText={rope.optionText}
+            x={ropeXPositions[i] ?? width / 2}
+            topY={ropeTopY}
+            revealState={getRopeRevealState(rope, i)}
+            questionPhase={questionPhase}
+          />
+        ))}
+      </svg>
 
       {/* Celebration particles for correct rope - only during complete phase */}
       {revealPhase === "complete" && <CelebrationParticles ropes={ropes} ropeXPositions={ropeXPositions} elevationToYCapped={elevationToYCapped} />}
@@ -599,16 +622,18 @@ const RopeClimbersGroup = memo(function RopeClimbersGroup({
 
         // Small stacking offset for multiple players on same rope (just for visual separation)
         // Earlier answerers (lower index) get positioned slightly higher
-        // Keep this small (8px per player) so it doesn't misrepresent elevation
+        // Scales with blob size (a quarter of it) so it stays a nudge, not a
+        // misrepresentation of elevation, at any mode's blob size
+        const stackStep = Math.round(sizeConfig.size * 0.25);
         const totalPlayers = players.length;
-        const stackOffset = -((totalPlayers - 1 - playerIndex) * 8);
+        const stackOffset = -((totalPlayers - 1 - playerIndex) * stackStep);
 
         // The climb offset is ONLY the small stacking offset
         // No large arbitrary climb - we don't want blobs appearing above their actual elevation
         const climbOffset = stackOffset;
 
         // Slight horizontal offset for visual separation
-        const xOffset = (playerIndex % 2 === 0 ? -1 : 1) * (playerIndex > 0 ? 8 : 0);
+        const xOffset = (playerIndex % 2 === 0 ? -1 : 1) * (playerIndex > 0 ? stackStep : 0);
 
         // Fall distance: for wrong answers, they just stay at their position (no fall needed)
         // since we're not artificially elevating them anymore

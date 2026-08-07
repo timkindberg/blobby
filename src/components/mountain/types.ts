@@ -48,14 +48,18 @@ export const CHECKPOINT_NAMES: Record<number, string> = {
 
 // Player size configurations for different modes
 export const PLAYER_SIZE_CONFIG: Record<MountainMode, { size: number; spacing: number; showName: boolean; nameSize: number }> = {
-  spectator: { size: 32, spacing: 34, showName: true, nameSize: 10 },
+  // Spectator runs on a projector / shared Zoom window, so blobs and names are
+  // sized to still read from the back of a room. Ladder geometry scales off
+  // this size too (see Rope.tsx).
+  spectator: { size: 72, spacing: 78, showName: true, nameSize: 16 },
   player: { size: 40, spacing: 44, showName: true, nameSize: 10 },
   "admin-preview": { size: 12, spacing: 14, showName: false, nameSize: 6 },
 };
 
 // Maximum players per row before clustering
 export const MAX_PLAYERS_PER_ROW: Record<MountainMode, number> = {
-  spectator: 20,
+  // Fewer per row than before: bigger blobs need more width each
+  spectator: 14,
   player: 8,
   "admin-preview": 16,
 };
