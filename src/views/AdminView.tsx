@@ -11,181 +11,23 @@ import { PRESENCE_TIMEOUT_MS } from "../../lib/constants";
 import { ConfirmationModal, useConfirmation } from "../components/ConfirmationModal";
 import { AIQuestionModal } from "../components/AIQuestionModal";
 import type { QuestionCategory } from "../../lib/sampleQuestions";
+import { THEME_LIST, useApplyTheme } from "../theme";
+import { DEFAULT_THEME_ID, type ThemeId } from "../../lib/themes";
+import { getHostId } from "../lib/hostId";
+import {
+  useHostAction,
+  useBackAction,
+  useHostKeyboard,
+  getHostPhase,
+  type SessionStatus,
+  type QuestionPhase,
+} from "../hooks/useHostActions";
 
 // Helper to check if a player is currently active based on heartbeat
 function isPlayerActive(player: { lastSeenAt?: number }): boolean {
   if (!player.lastSeenAt) return false; // Never seen = inactive
   if (player.lastSeenAt === 0) return false; // Explicitly disconnected
   return Date.now() - player.lastSeenAt < PRESENCE_TIMEOUT_MS;
-}
-
-// Types for host action button
-type SessionStatus = "lobby" | "active" | "finished";
-type QuestionPhase = "pre_game" | "question_shown" | "answers_shown" | "revealed" | "results" | undefined;
-
-interface HostActionConfig {
-  label: string;
-  action: () => Promise<void>;
-  disabled: boolean;
-  isDestructive?: boolean;
-  confirmMessage?: string; // If set, requires confirmation before action
-}
-
-// Hook to determine the current host action based on session state
-function useHostAction(
-  sessionId: Id<"sessions"> | null,
-  hostId: string,
-  sessionStatus: SessionStatus | undefined,
-  questionPhase: QuestionPhase,
-  enabledQuestionCount: number,
-  currentQuestionIndex: number,
-  onBeforeStart?: () => Promise<void>
-): HostActionConfig | null {
-  const startSession = useMutation(api.sessions.start);
-  const showAnswers = useMutation(api.sessions.showAnswers);
-  const revealAnswer = useMutation(api.sessions.revealAnswer);
-  const showResults = useMutation(api.sessions.showResults);
-  const nextQuestion = useMutation(api.sessions.nextQuestion);
-  const backToLobby = useMutation(api.sessions.backToLobby);
-
-  if (!sessionId || !sessionStatus) return null;
-
-  const isLastQuestion = currentQuestionIndex >= enabledQuestionCount - 1;
-
-  switch (sessionStatus) {
-    case "lobby":
-      return {
-        label: `Start Game (${enabledQuestionCount} questions)`,
-        action: async () => {
-          if (onBeforeStart) {
-            await onBeforeStart();
-          }
-          await startSession({ sessionId, hostId });
-        },
-        disabled: enabledQuestionCount === 0,
-      };
-
-    case "active":
-      switch (questionPhase) {
-        case "pre_game":
-          return {
-            label: "First Question",
-            action: async () => { await nextQuestion({ sessionId, hostId }); },
-            disabled: false,
-          };
-        case "question_shown":
-          return {
-            label: "Show Answers",
-            action: async () => { await showAnswers({ sessionId, hostId }); },
-            disabled: false,
-          };
-        case "answers_shown":
-          return {
-            label: "Reveal Answer",
-            action: async () => { await revealAnswer({ sessionId, hostId }); },
-            disabled: false,
-          };
-        case "revealed":
-          return {
-            label: "Show Leaderboard",
-            action: async () => { await showResults({ sessionId, hostId }); },
-            disabled: false,
-          };
-        case "results":
-          return {
-            label: isLastQuestion ? "End Game" : "Next Question",
-            action: async () => { await nextQuestion({ sessionId, hostId }); },
-            disabled: false,
-            isDestructive: isLastQuestion,
-          };
-        default:
-          return null;
-      }
-
-    case "finished":
-      return {
-        label: "New Game (Same Players)",
-        action: async () => {
-          await backToLobby({ sessionId, hostId });
-        },
-        disabled: false,
-        confirmMessage: "This will reset all player scores and start a new game with the same players. Continue?",
-      };
-
-    default:
-      return null;
-  }
-}
-
-// Hook to determine the back action based on session state
-function useBackAction(
-  sessionId: Id<"sessions"> | null,
-  hostId: string,
-  sessionStatus: SessionStatus | undefined,
-  questionPhase: QuestionPhase,
-  currentQuestionIndex: number
-): HostActionConfig | null {
-  const previousPhase = useMutation(api.sessions.previousPhase);
-
-  if (!sessionId || !sessionStatus) return null;
-
-  // No back action in lobby or finished state
-  if (sessionStatus !== "active") return null;
-
-  // Determine the back action based on current phase
-  switch (questionPhase) {
-    case "pre_game":
-      // Pre-game -> Lobby
-      return {
-        label: "<- Lobby",
-        action: async () => { await previousPhase({ sessionId, hostId }); },
-        disabled: false,
-        isDestructive: false, // No answers or progress to lose yet
-      };
-    case "results":
-      return {
-        label: "<- Revealed",
-        action: async () => { await previousPhase({ sessionId, hostId }); },
-        disabled: false,
-        isDestructive: false,
-      };
-    case "revealed":
-      return {
-        label: "<- Hide Answer",
-        action: async () => { await previousPhase({ sessionId, hostId }); },
-        disabled: false,
-        isDestructive: false,
-      };
-    case "answers_shown":
-      return {
-        label: "<- Clear Answers",
-        action: async () => {
-          await previousPhase({ sessionId, hostId });
-        },
-        disabled: false,
-        isDestructive: true,
-        confirmMessage: "This will delete all answers for this question. Continue?",
-      };
-    case "question_shown":
-      if (currentQuestionIndex > 0) {
-        return {
-          label: `<- Q${currentQuestionIndex} Results`,
-          action: async () => { await previousPhase({ sessionId, hostId }); },
-          disabled: false,
-          isDestructive: false,
-        };
-      } else {
-        // Q1 -> Pre-game (safe: no progress lost, just going back to hype phase)
-        return {
-          label: "<- Pre-Game",
-          action: async () => { await previousPhase({ sessionId, hostId }); },
-          disabled: false,
-          isDestructive: false,
-        };
-      }
-    default:
-      return null;
-  }
 }
 
 // Host Action Button Component
@@ -291,35 +133,8 @@ function HostActionButton({
     }
   }, [backConfig, isBackLoading, confirmation, executeBackAction]);
 
-  // Keyboard shortcut handler
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      // Only trigger if not focused on an input, textarea, or contenteditable
-      const target = event.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      ) {
-        return;
-      }
-
-      // Spacebar or Enter triggers the forward action
-      if (event.code === "Space" || event.code === "Enter") {
-        event.preventDefault();
-        handleAction();
-      }
-
-      // Backspace triggers the back action (if available)
-      if (event.code === "Backspace" && backConfig && !backConfig.disabled) {
-        event.preventDefault();
-        handleBackAction();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleAction, handleBackAction, backConfig]);
+  // Keyboard driving (Space/Enter/Right to advance, Left/Backspace to rewind)
+  useHostKeyboard({ onForward: handleAction, onBack: handleBackAction });
 
   if (!actionConfig) return null;
 
@@ -353,7 +168,7 @@ function HostActionButton({
         </button>
       </div>
       <div className="host-action-hint">
-        Press <kbd>Space</kbd> or <kbd>Enter</kbd> to advance{backConfig && <>, <kbd>Backspace</kbd> to go back</>}
+        Press <kbd>Space</kbd> or <kbd>{"→"}</kbd> to advance{backConfig && <>, <kbd>{"←"}</kbd> to go back</>}
       </div>
       <ConfirmationModal
         isOpen={confirmation.state.isOpen}
@@ -373,17 +188,6 @@ interface Props {
   onBack: () => void;
   initialCode?: string | null;
   initialToken?: string | null;
-}
-
-// Get or create a persistent hostId from localStorage
-function getHostId(): string {
-  const key = "blobby-host-id";
-  let hostId = localStorage.getItem(key);
-  if (!hostId) {
-    hostId = crypto.randomUUID();
-    localStorage.setItem(key, hostId);
-  }
-  return hostId;
 }
 
 export function AdminView({ onBack, initialCode, initialToken }: Props) {
@@ -458,6 +262,11 @@ export function AdminView({ onBack, initialCode, initialToken }: Props) {
     : null;
 
   const endGameEarly = useMutation(api.sessions.endGameEarly);
+  const setSessionTheme = useMutation(api.sessions.setTheme);
+
+  // Preview the session's theme in the admin UI too, so the host sees what
+  // players see (and the theme picker previews itself).
+  useApplyTheme(session?.theme);
 
   // Auto-join session from shareable host link
   useEffect(() => {
@@ -553,10 +362,21 @@ export function AdminView({ onBack, initialCode, initialToken }: Props) {
     });
   }
 
+  async function handleSetTheme(theme: ThemeId) {
+    if (!sessionId) return;
+    try {
+      await setSessionTheme({ sessionId, hostId, theme });
+      setAdminError(null);
+    } catch (err) {
+      setAdminError(getFriendlyErrorMessage(err));
+    }
+  }
+
   function openSpectatorView() {
     if (!session) return;
-    const url = `/spectate/${session.code}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    // Navigate in place: the spectator screen can drive the game itself, and
+    // has a "Manage" button back here, so the two views are an either/or.
+    window.location.href = `/spectate/${session.code}`;
   }
 
   async function copySessionCode() {
@@ -799,7 +619,11 @@ export function AdminView({ onBack, initialCode, initialToken }: Props) {
           </div>
         </div>
         <div className="header-right">
-          <button onClick={openSpectatorView} className="header-btn spectator-btn">
+          <button
+            onClick={openSpectatorView}
+            className="header-btn spectator-btn"
+            title="Switch to the big-screen view - you can drive the game from there"
+          >
             Spectate
           </button>
           {session.status === "active" && (
@@ -850,6 +674,32 @@ export function AdminView({ onBack, initialCode, initialToken }: Props) {
               <span className="info-value">{enabledQuestions.length} enabled</span>
             </div>
           </div>
+
+          {/* Theme picker - cosmetic only, so it can be changed at any time */}
+          <div className="theme-picker">
+            <span className="info-label">Theme</span>
+            <div className="theme-options">
+              {THEME_LIST.map((theme) => {
+                const isSelected = (session.theme ?? DEFAULT_THEME_ID) === theme.id;
+                return (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    onClick={() => handleSetTheme(theme.id)}
+                    className={`theme-chip ${isSelected ? "selected" : ""}`}
+                    title={theme.description}
+                    aria-pressed={isSelected}
+                  >
+                    <span className="theme-chip-emoji">{theme.emoji}</span>
+                    <span className="theme-chip-label">{theme.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="theme-help-text">
+              Visual only — changes apply live for players and spectators.
+            </p>
+          </div>
         </section>
 
         {/* Main Action Button - Always visible, always in same spot */}
@@ -858,12 +708,7 @@ export function AdminView({ onBack, initialCode, initialToken }: Props) {
             sessionId={sessionId}
             hostId={hostId}
             sessionStatus={session.status as SessionStatus}
-            questionPhase={
-              // Derive pre_game phase when session is active but hasn't started questions yet
-              session.status === "active" && session.currentQuestionIndex === -1
-                ? "pre_game"
-                : (ropeClimbingState?.questionPhase as QuestionPhase)
-            }
+            questionPhase={getHostPhase(session)}
             enabledQuestionCount={enabledQuestions.length}
             currentQuestionIndex={session.currentQuestionIndex}
             onBeforeStart={shuffleOnStart ? async () => {

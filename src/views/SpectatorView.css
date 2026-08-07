@@ -265,6 +265,16 @@
   position: relative;
 }
 
+/* Spectator stacking order, bottom to top:
+     mountain + ladders (auto) < climber blobs (5/100) < question card (150)
+     < answer labels (160) < sound toggle / manage (200) < host bar (300)
+     < leaderboard + "Did you know?" popups (400).
+   The labels get their own layer so a long, wrapped question can't cover them
+   while the ladders stay behind the blobs climbing them. */
+.spectator-fullscreen .rope-labels-layer {
+  z-index: 160;
+}
+
 .spectator-mountain-fullscreen .mountain {
   width: 100% !important;
   height: 100% !important;
@@ -709,4 +719,215 @@
   .lobby-blob {
     transform: scale(1.2);
   }
+}
+
+/* ============================================
+   HOST CONTROLS ON THE SPECTATOR SCREEN
+   Only rendered for the session host, so the game can be driven
+   from the same screen that's being shared.
+   ============================================ */
+
+/* "Back to admin" escape hatch - sits left of the sound toggle */
+.spectator-manage-button {
+  position: absolute;
+  top: 20px;
+  right: 80px;
+  padding: 0 18px;
+  height: 48px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 24px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  z-index: 200;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+}
+
+.spectator-manage-button:hover {
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  transform: scale(1.05);
+}
+
+.spectator-manage-button:active {
+  transform: scale(0.95);
+}
+
+/* Lobby: primary "Start Game" call to action */
+.spectator-host-lobby {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.spectator-start-button {
+  padding: 20px 56px;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: white;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  border: none;
+  border-radius: 16px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
+  transition: transform 0.1s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.spectator-start-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(99, 102, 241, 0.55);
+}
+
+.spectator-start-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.spectator-start-button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.8);
+  opacity: 0.5;
+}
+
+.spectator-start-hint {
+  font-size: 1.1rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
+/* In-game: control pill in the bottom-right corner.
+   Deliberately NOT centered - climbers cluster at the bottom middle of the
+   mountain, and the elevation labels it does cover are mirrored on the left. */
+.spectator-host-bar {
+  position: absolute;
+  bottom: 20px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: rgba(2, 6, 23, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  z-index: 300;
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+}
+
+.spectator-host-bar:hover,
+.spectator-host-bar:focus-within {
+  opacity: 1;
+}
+
+.spectator-host-bar-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spectator-host-bar button {
+  padding: 10px 18px;
+  font-size: 1rem;
+  font-weight: 700;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+/* Back is icon-only so the pill covers as little of the mountain as possible */
+.spectator-host-bar .spectator-host-back {
+  padding: 10px 14px;
+}
+
+.spectator-host-next {
+  color: white;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  border: none;
+}
+
+.spectator-host-next:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.spectator-host-next.destructive {
+  background: linear-gradient(135deg, #ef4444, #f97316);
+}
+
+.spectator-host-back {
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.spectator-host-back:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+}
+
+.spectator-host-back.destructive {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
+.spectator-host-bar button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.spectator-host-bar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Key hints only on hover - the host learns them on the Get Ready screen */
+.spectator-host-bar-hint {
+  display: none;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+}
+
+.spectator-host-bar:hover .spectator-host-bar-hint,
+.spectator-host-bar:focus-within .spectator-host-bar-hint {
+  display: block;
+}
+
+/* Pre-game keyboard instructions (host only) */
+.pregame-host-instructions {
+  margin-top: 2.5rem;
+}
+
+.pregame-key-primary {
+  font-size: 2.4rem;
+  font-weight: 700;
+  color: white;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  margin: 0;
+}
+
+.pregame-key-secondary {
+  font-size: 1.2rem;
+  color: rgba(255, 255, 255, 0.7);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  margin: 0.75rem 0 0;
+}
+
+/* Keycap styling shared by the host-only hints */
+.spectator-view kbd,
+.spectator-fullscreen kbd {
+  display: inline-block;
+  padding: 0.1em 0.5em;
+  margin: 0 0.15em;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-weight: 700;
+  color: white;
 }

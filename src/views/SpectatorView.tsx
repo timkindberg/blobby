@@ -1,8 +1,20 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import "./SpectatorView.css";
+import { getHostId } from "../lib/hostId";
+import {
+  useHostAction,
+  useBackAction,
+  useHostKeyboard,
+  getHostPhase,
+  type SessionStatus,
+  type QuestionPhase,
+} from "../hooks/useHostActions";
+import { ErrorMessage } from "../components/ErrorMessage";
+import { ConfirmationModal, useConfirmation } from "../components/ConfirmationModal";
+import { getFriendlyErrorMessage } from "../lib/errorMessages";
 import { Mountain, type SkyQuestion } from "../components/mountain";
 import { Leaderboard } from "../components/Leaderboard";
 import { Blob } from "../components/Blob";
@@ -12,6 +24,7 @@ import type { RopeClimbingState } from "../../lib/ropeTypes";
 import { useSoundManager } from "../hooks/useSoundManager";
 import { playSound } from "../lib/soundManager";
 import { shuffleOptions } from "../../lib/shuffle";
+import { useApplyTheme } from "../theme";
 
 interface Props {
   sessionCode: string;
@@ -19,12 +32,16 @@ interface Props {
 }
 
 /**
- * SpectatorView - Display-only view for projectors and big screens
+ * SpectatorView - Big-screen view for projectors and screen sharing
  *
  * Shows the mountain visualization with all players, current question,
- * and timer. No admin controls - this is purely for audience viewing.
+ * and timer. If the viewer is the session host (same browser that created it),
+ * they also get keyboard driving + a control bar so the whole game can be run
+ * from the screen that's being shared, instead of a second device.
  */
 export function SpectatorView({ sessionCode, onBack }: Props) {
+  // Host identity - matched against the session's hostId to unlock controls
+  const [hostId] = useState(getHostId);
   // Sound effects for player join, question reveal, and game start
   // NOTE: Reveal sounds (snip, blobSad, blobHappy) are handled by Mountain.tsx
   const { play, playChitters, muted, toggleMute } = useSoundManager();
@@ -54,6 +71,9 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
 
   // Look up session by code
   const session = useQuery(api.sessions.getByCode, { code: sessionCode });
+
+  // Visual theme (host-controlled, applies to every participant)
+  useApplyTheme(session?.theme);
 
   // Get players and question data once we have a session
   const sessionId = session?._id as Id<"sessions"> | undefined;
@@ -230,6 +250,30 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
     );
   }, [currentQuestion, session?.code, session?.currentQuestionIndex]);
 
+  // Host controls: only the browser that created the session can drive it.
+  // (The Convex mutations authorize on hostId too, so this is just UI gating.)
+  const isHost = !!session && session.hostId === hostId;
+  const enabledQuestionCount = questions?.filter((q) => q.enabled !== false).length ?? 0;
+
+  // Switch back to the admin screen (questions, players, settings)
+  const goToAdmin = useCallback(() => {
+    if (!session) return;
+    window.location.href = session.secretToken
+      ? `/host/${session.code}/${session.secretToken}`
+      : "/admin";
+  }, [session]);
+
+  const hostControlProps = session
+    ? {
+        sessionId: session._id,
+        hostId,
+        sessionStatus: session.status as SessionStatus,
+        questionPhase: getHostPhase(session),
+        enabledQuestionCount,
+        currentQuestionIndex: session.currentQuestionIndex,
+      }
+    : null;
+
   // Session not found
   if (session === null) {
     return (
@@ -267,6 +311,8 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
           {muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}
         </button>
 
+        {isHost && <ManageButton onClick={goToAdmin} />}
+
         <h1 className="spectator-title">Game Over!</h1>
         <div className="spectator-leaderboard">
           <h2>Final Results</h2>
@@ -289,6 +335,10 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
         <button onClick={onBack} className="back-to-home-button">
           Back to Home
         </button>
+
+        {isHost && hostControlProps && (
+          <SpectatorHostControls {...hostControlProps} variant="bar" />
+        )}
       </div>
     );
   }
@@ -306,6 +356,8 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
         >
           {muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}
         </button>
+
+        {isHost && <ManageButton onClick={goToAdmin} />}
 
         {/* Animated blob avatars in safe zones */}
         {players && players.length > 0 && (
@@ -337,7 +389,12 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
           <span className="count">{players?.length ?? 0}</span>
           <span className="label">players joined</span>
         </div>
-        <p className="waiting-text">Waiting for host to start...</p>
+
+        {isHost && hostControlProps ? (
+          <SpectatorHostControls {...hostControlProps} variant="lobby" />
+        ) : (
+          <p className="waiting-text">Waiting for host to start...</p>
+        )}
       </div>
     );
   }
@@ -363,6 +420,8 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
           {muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}
         </button>
 
+        {isHost && <ManageButton onClick={goToAdmin} />}
+
         {/* Full-screen mountain without question */}
         <div className="spectator-mountain-fullscreen">
           <Mountain
@@ -385,18 +444,31 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
         <div className="pregame-overlay">
           <h1 className="pregame-title">Get Ready!</h1>
           <p className="pregame-subtitle">The climb begins...</p>
+          {isHost && (
+            <div className="pregame-host-instructions">
+              <p className="pregame-key-primary">
+                Press <kbd>Space</kbd> to Advance
+              </p>
+              <p className="pregame-key-secondary">
+                Press <kbd>{"←"}</kbd> Left Arrow to Rewind
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Player count indicator */}
         <div className="spectator-player-indicator">
           {players?.length ?? 0} climbers
         </div>
+
+        {isHost && hostControlProps && (
+          <SpectatorHostControls {...hostControlProps} variant="bar" />
+        )}
       </div>
     );
   }
 
   // Active game - show mountain and current question
-  const enabledQuestionCount = questions?.filter((q) => q.enabled !== false).length ?? 0;
   const questionPhase = ropeClimbingState?.questionPhase ?? "answers_shown";
 
   // Build sky question data for the Mountain component
@@ -435,6 +507,8 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
       >
         {muted ? "\uD83D\uDD07" : "\uD83D\uDD0A"}
       </button>
+
+      {isHost && <ManageButton onClick={goToAdmin} />}
 
       {/* Answer labels are now rendered in the Mountain SVG at the top of each rope */}
 
@@ -501,6 +575,224 @@ export function SpectatorView({ sessionCode, onBack }: Props) {
       <div className="spectator-player-indicator">
         {players?.length ?? 0} climbers
       </div>
+
+      {isHost && hostControlProps && (
+        <SpectatorHostControls {...hostControlProps} variant="bar" />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Small "back to admin" escape hatch, shown only to the host.
+ * The admin view and spectator view are an either/or on one screen.
+ */
+function ManageButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      className="spectator-manage-button"
+      onClick={onClick}
+      title="Back to admin view (questions, players, settings)"
+    >
+      Manage
+    </button>
+  );
+}
+
+/**
+ * Host controls rendered on the spectator screen.
+ *
+ * - `lobby` variant: the big "Start Game" call to action
+ * - `bar` variant: an unobtrusive bottom pill with the next/previous step
+ *
+ * Both variants install the same keyboard driving (Space / Right to advance,
+ * Left to rewind) so the host never has to aim at a button mid-presentation.
+ */
+function SpectatorHostControls({
+  sessionId,
+  hostId,
+  sessionStatus,
+  questionPhase,
+  enabledQuestionCount,
+  currentQuestionIndex,
+  variant,
+}: {
+  sessionId: Id<"sessions">;
+  hostId: string;
+  sessionStatus: SessionStatus;
+  questionPhase: QuestionPhase;
+  enabledQuestionCount: number;
+  currentQuestionIndex: number;
+  variant: "lobby" | "bar";
+}) {
+  const [isLoading, setIsLoading] = useState(false);
+  const [isBackLoading, setIsBackLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const confirmation = useConfirmation();
+
+  const actionConfig = useHostAction(
+    sessionId,
+    hostId,
+    sessionStatus,
+    questionPhase,
+    enabledQuestionCount,
+    currentQuestionIndex
+  );
+
+  const backConfig = useBackAction(
+    sessionId,
+    hostId,
+    sessionStatus,
+    questionPhase,
+    currentQuestionIndex
+  );
+
+  const executeAction = useCallback(async () => {
+    if (!actionConfig || actionConfig.disabled || isLoading) return;
+    setIsLoading(true);
+    setActionError(null);
+    try {
+      await actionConfig.action();
+    } catch (error) {
+      console.error("Action failed:", error);
+      setActionError(getFriendlyErrorMessage(error));
+    } finally {
+      setTimeout(() => setIsLoading(false), 300);
+    }
+  }, [actionConfig, isLoading]);
+
+  const executeBackAction = useCallback(async () => {
+    if (!backConfig || backConfig.disabled || isBackLoading) return;
+    setIsBackLoading(true);
+    setActionError(null);
+    try {
+      await backConfig.action();
+    } catch (error) {
+      console.error("Back action failed:", error);
+      setActionError(getFriendlyErrorMessage(error));
+    } finally {
+      setTimeout(() => setIsBackLoading(false), 300);
+    }
+  }, [backConfig, isBackLoading]);
+
+  const handleAction = useCallback(() => {
+    if (!actionConfig || actionConfig.disabled || isLoading) return;
+    if (actionConfig.confirmMessage) {
+      confirmation.confirm({
+        message: actionConfig.confirmMessage,
+        confirmText: "Continue",
+        cancelText: "Cancel",
+        variant: actionConfig.isDestructive ? "danger" : "default",
+        onConfirm: executeAction,
+      });
+    } else {
+      executeAction();
+    }
+  }, [actionConfig, isLoading, confirmation, executeAction]);
+
+  const handleBackAction = useCallback(() => {
+    if (!backConfig || backConfig.disabled || isBackLoading) return;
+    if (backConfig.confirmMessage) {
+      confirmation.confirm({
+        message: backConfig.confirmMessage,
+        confirmText: "Continue",
+        cancelText: "Cancel",
+        variant: backConfig.isDestructive ? "danger" : "default",
+        onConfirm: executeBackAction,
+      });
+    } else {
+      executeBackAction();
+    }
+  }, [backConfig, isBackLoading, confirmation, executeBackAction]);
+
+  // Don't hijack keys while a confirmation dialog is waiting on the host
+  useHostKeyboard({
+    onForward: handleAction,
+    onBack: handleBackAction,
+    enabled: !confirmation.state.isOpen,
+  });
+
+  const confirmationModal = (
+    <ConfirmationModal
+      isOpen={confirmation.state.isOpen}
+      onConfirm={confirmation.handleConfirm}
+      onCancel={confirmation.handleCancel}
+      title={confirmation.state.title}
+      message={confirmation.state.message}
+      confirmText={confirmation.state.confirmText}
+      cancelText={confirmation.state.cancelText}
+      variant={confirmation.state.variant}
+    />
+  );
+
+  if (!actionConfig) return confirmationModal;
+
+  if (variant === "lobby") {
+    return (
+      <div className="spectator-host-lobby">
+        <ErrorMessage
+          message={actionError}
+          onDismiss={() => setActionError(null)}
+          variant="inline"
+          autoDismissMs={5000}
+        />
+        <button
+          className="spectator-start-button"
+          onClick={handleAction}
+          disabled={actionConfig.disabled || isLoading}
+        >
+          {isLoading ? "Starting..." : "Start Game"}
+        </button>
+        <p className="spectator-start-hint">
+          {actionConfig.disabled
+            ? "Add questions from the Manage screen first"
+            : <>{enabledQuestionCount} questions ready &middot; press <kbd>Space</kbd> to start</>}
+        </p>
+        {confirmationModal}
+      </div>
+    );
+  }
+
+  const backLabel = backConfig?.label.replace(/^<-\s*/, "") ?? "";
+
+  return (
+    <div className="spectator-host-bar">
+      <ErrorMessage
+        message={actionError}
+        onDismiss={() => setActionError(null)}
+        variant="inline"
+        autoDismissMs={5000}
+      />
+      {/* Hint sits ABOVE the buttons: the bar is bottom-anchored, so growing
+          upward on hover leaves the buttons under the cursor instead of
+          sliding them away from it. */}
+      <div className="spectator-host-bar-hint">
+        <kbd>Space</kbd> advance{backConfig && <> &middot; <kbd>←</kbd> {backLabel}</>}
+      </div>
+      <div className="spectator-host-bar-buttons">
+        {backConfig && (
+          <button
+            className={`spectator-host-back ${backConfig.isDestructive ? "destructive" : ""}`}
+            onClick={handleBackAction}
+            disabled={backConfig.disabled || isBackLoading}
+            // Icon-only to keep the pill small on the shared screen - the full
+            // step name lives in the tooltip and the hover hint below.
+            title={`Left arrow: ${backLabel}`}
+            aria-label={`Rewind to ${backLabel}`}
+          >
+            {isBackLoading ? "..." : "←"}
+          </button>
+        )}
+        <button
+          className={`spectator-host-next ${actionConfig.isDestructive ? "destructive" : ""}`}
+          onClick={handleAction}
+          disabled={actionConfig.disabled || isLoading}
+          title="Space or right arrow"
+        >
+          {isLoading ? "..." : `${actionConfig.label} →`}
+        </button>
+      </div>
+      {confirmationModal}
     </div>
   );
 }
@@ -729,11 +1021,12 @@ function getLobbyBlobStyle(index: number, totalPlayers: number): React.CSSProper
 /**
  * Get blob size based on number of players
  * Smaller blobs when many players to avoid crowding
+ * (sized for a shared/projected screen, so generous by default)
  */
 function getBlobSize(totalPlayers: number): number {
-  if (totalPlayers >= 20) return 40;
-  if (totalPlayers >= 10) return 50;
-  return 70;
+  if (totalPlayers >= 20) return 78;
+  if (totalPlayers >= 10) return 100;
+  return 130;
 }
 
 

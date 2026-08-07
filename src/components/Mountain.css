@@ -705,7 +705,8 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  z-index: 55;
+  /* Above everything on the mountain - ladders, answer labels, question card */
+  z-index: 400;
   animation: follow-up-slide-in 0.5s ease-out;
 }
 
