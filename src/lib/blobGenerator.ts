@@ -152,12 +152,13 @@ export function generateBlob(name: string): BlobConfig {
 // layers over a diaper and a binky stays on top of everything.
 const SLOT_RENDER_ORDER: Record<ThemeAccessorySlot, number> = {
   bottom: 0,
-  chest: 1,
-  "hand-left": 2,
-  "hand-right": 3,
-  cheeks: 4,
-  mouth: 5,
-  head: 6,
+  feet: 1, // over the nappy - shoes are in front of what they poke out of
+  chest: 2,
+  "hand-left": 3,
+  "hand-right": 4,
+  cheeks: 5,
+  mouth: 6,
+  head: 7,
 };
 
 /**
