@@ -1,0 +1,64 @@
+/* ============================================
+   THEME SKINS (DOM chrome)
+
+   SVG game visuals are themed in JS via the palette in src/theme/themes/.
+   This file only handles the surrounding page chrome, keyed off the
+   data-theme attribute ThemeProvider writes onto <html>.
+
+   Keep selectors specific enough to beat the base rules in index.css but
+   below component classes (.header-btn.danger etc.) so semantic colors —
+   danger red, success green — survive theming.
+   ============================================ */
+
+/* ---------- Baby Shower ---------- */
+
+html[data-theme="baby_shower"] body {
+  background: linear-gradient(180deg, #fff6fb 0%, #f4f0ff 55%, #eaf3ff 100%);
+}
+
+html[data-theme="baby_shower"] h1,
+html[data-theme="baby_shower"] h2 {
+  color: #6b4f86;
+}
+
+html[data-theme="baby_shower"] section {
+  background: #fdf7fc;
+}
+
+html[data-theme="baby_shower"] .app p {
+  color: #7d6a92;
+}
+
+html[data-theme="baby_shower"] .mode-select .btn-primary {
+  background: #e58bb6;
+}
+
+html[data-theme="baby_shower"] .mode-select .btn-primary:hover {
+  background: #d5719f;
+}
+
+html[data-theme="baby_shower"] .mode-select .btn-secondary {
+  background: #e8e2ff;
+  color: #5a4680;
+}
+
+html[data-theme="baby_shower"] .mode-select .btn-secondary:hover {
+  background: #d9d0ff;
+}
+
+html[data-theme="baby_shower"] .mode-select .btn-ghost {
+  color: #8a6aa8;
+  border-color: #d3bde6;
+}
+
+html[data-theme="baby_shower"] .mode-select .btn-ghost:hover {
+  background: #f8f2ff;
+}
+
+html[data-theme="baby_shower"] .player-view {
+  background: #fffafd;
+}
+
+html[data-theme="baby_shower"] .admin-view {
+  background: #fdf8fc;
+}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Blob } from "./Blob";
 import { generateBlob } from "../lib/blobGenerator";
 import type { BlobConfig } from "../lib/blobGenerator";
+import { THEME_LIST, useThemeControls } from "../theme";
 
 const SAMPLE_NAMES = [
   "Alice", "Bob", "Charlie", "Diana", "Eve", "Frank",
@@ -18,6 +19,7 @@ export function BlobGallery() {
   const [animState, setAnimState] = useState<AnimState>("idle");
   const [customName, setCustomName] = useState("");
   const [customBlobs, setCustomBlobs] = useState<BlobConfig[]>([]);
+  const { themeId, setThemeId } = useThemeControls();
 
   const sampleBlobs = SAMPLE_NAMES.map(generateBlob);
 
@@ -31,6 +33,23 @@ export function BlobGallery() {
   return (
     <div style={{ padding: 20 }}>
       <h2>Blob Gallery</h2>
+
+      <div style={{ marginBottom: 20, display: "flex", gap: 8, alignItems: "center" }}>
+        <label>Theme: </label>
+        {THEME_LIST.map((theme) => (
+          <button
+            key={theme.id}
+            onClick={() => setThemeId(theme.id)}
+            title={theme.description}
+            style={{
+              background: themeId === theme.id ? "#4f46e5" : "#e0e7ff",
+              color: themeId === theme.id ? "white" : "#3730a3",
+            }}
+          >
+            {theme.emoji} {theme.label}
+          </button>
+        ))}
+      </div>
 
       <div style={{ marginBottom: 20, display: "flex", gap: 8 }}>
         <label>Animation: </label>

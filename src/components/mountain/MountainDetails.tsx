@@ -1,4 +1,5 @@
 import { SUMMIT } from "../../../lib/elevation";
+import { useTheme } from "../../theme";
 import type { MountainMode } from "./types";
 import { seededRandom } from "./terrain";
 
@@ -29,6 +30,7 @@ export function MountainDetails({
   const summitY = elevationToY(SUMMIT);
   const random = seededRandom(54321);
   const mountainHeight = height - summitY;
+  const { detail, texture } = useTheme().mountain;
 
   // Reduce detail for admin-preview mode
   const detailLevel = mode === "admin-preview" ? 0.4 : 1;
@@ -107,7 +109,7 @@ export function MountainDetails({
           y={summitY}
           width={streak.width}
           height={mountainHeight}
-          fill="#0a0c10"
+          fill={detail.streak}
           opacity={streak.opacity}
         />
       ))}
@@ -119,7 +121,7 @@ export function MountainDetails({
           <path
             d={crack.path}
             fill="none"
-            stroke="#0a0c10"
+            stroke={detail.shadow}
             strokeWidth={2}
             opacity={crack.opacity * 0.5}
             strokeLinecap="round"
@@ -129,7 +131,7 @@ export function MountainDetails({
           <path
             d={crack.path}
             fill="none"
-            stroke="#1a202c"
+            stroke={detail.crack}
             strokeWidth={1}
             opacity={crack.opacity}
             strokeLinecap="round"
@@ -146,7 +148,7 @@ export function MountainDetails({
             y1={ledge.y + 2}
             x2={ledge.x2}
             y2={ledge.y + 3}
-            stroke="#0a0c10"
+            stroke={detail.shadow}
             strokeWidth={2}
             opacity={ledge.opacity}
             strokeLinecap="round"
@@ -157,7 +159,7 @@ export function MountainDetails({
             y1={ledge.y}
             x2={ledge.x2}
             y2={ledge.y}
-            stroke="#5a6577"
+            stroke={detail.ledgeHighlight}
             strokeWidth={1}
             opacity={ledge.opacity}
             strokeLinecap="round"
@@ -172,7 +174,7 @@ export function MountainDetails({
         width={width}
         height={mountainHeight}
         fill={`url(#rock-texture-${mode})`}
-        opacity="0.3"
+        opacity={texture.opacity}
       />
     </g>
   );

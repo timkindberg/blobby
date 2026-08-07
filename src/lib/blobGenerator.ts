@@ -5,6 +5,13 @@
  * Same name = same blob every time.
  */
 
+import type { ThemeId } from "../../lib/themes";
+import type {
+  ThemeAccessorySlot,
+  ThemeAccessorySpec,
+  ThemeBlobAccessories,
+} from "../theme/types";
+
 export interface BlobConfig {
   name: string;
   body: {
@@ -139,4 +146,60 @@ export function generateBlob(name: string): BlobConfig {
     accessory,
     seed,
   };
+}
+
+// Render order for themed accessories: back-to-front on the blob, so a bib
+// layers over a diaper and a binky stays on top of everything.
+const SLOT_RENDER_ORDER: Record<ThemeAccessorySlot, number> = {
+  bottom: 0,
+  chest: 1,
+  "hand-left": 2,
+  "hand-right": 3,
+  mouth: 4,
+};
+
+/**
+ * Pick a blob's themed accessories — deterministic from the player name,
+ * exactly like the rest of its look.
+ *
+ * Seeded from `name + themeId` rather than reusing the base blob's seed, so:
+ *  - turning a theme on never changes the base blob (same name = same body,
+ *    eyes, hair, accessory as before), and
+ *  - two themes give the same player different-but-stable accessories.
+ *
+ * Picks are one-per-slot, so accessories never stack on the same spot, and
+ * anything that would collide with the blob's base accessory is dropped.
+ */
+export function generateThemeAccessories(
+  name: string,
+  themeId: ThemeId,
+  spec: ThemeBlobAccessories,
+  baseAccessory: Accessory
+): ThemeAccessorySpec[] {
+  const available = spec.pool.filter(
+    (item) => !item.conflictsWith?.includes(baseAccessory)
+  );
+  if (available.length === 0 || spec.maxCount <= 0) return [];
+
+  const random = seededRandom(hashString(`${name.toLowerCase().trim()}::${themeId}`));
+
+  // Shuffle a copy, then take the first N — guarantees distinct picks.
+  const shuffled = [...available];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
+  }
+
+  const max = Math.min(spec.maxCount, shuffled.length);
+  const min = Math.max(0, Math.min(spec.minCount, max));
+  const count = min + Math.floor(random() * (max - min + 1));
+
+  const bySlot = new Map<ThemeAccessorySlot, ThemeAccessorySpec>();
+  for (const item of shuffled.slice(0, count)) {
+    if (!bySlot.has(item.slot)) bySlot.set(item.slot, item);
+  }
+
+  return [...bySlot.values()].sort(
+    (a, b) => SLOT_RENDER_ORDER[a.slot] - SLOT_RENDER_ORDER[b.slot]
+  );
 }
